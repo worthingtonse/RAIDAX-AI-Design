@@ -1,31 +1,3 @@
-Language-Agnostic Specification: Network Interface
-1. Module Purpose
-This module defines the public interface for the RAIDAX server's high-performance, non-blocking network layer. It specifies the required functions and constants for initializing and running the server's network event loop.
-
-2. Core Constants
-EVENT_LOOP_TIMEOUT: An integer representing the timeout for the I/O event multiplexer in milliseconds (e.g., 10000).
-
-MAX_CONNECTIONS: The maximum number of concurrent connections the server is configured to handle (e.g., 65535).
-
-MAX_BODY_SIZE: A constant defining the maximum allowed size for a request body (e.g., 65536 bytes). This is a critical security measure.
-
-3. Required Functions
-The network layer implementation must expose the following functionalities:
-
-start_server_event_loop(): The main entry point for the network layer. It initializes the server sockets, sets up the asynchronous I/O event multiplexer, and starts the main event loop. This function should block indefinitely.
-
-initialize_tcp_listener(): Creates, binds, and listens on the primary TCP socket, configuring it for non-blocking operation. Returns a handle to the listening socket.
-
-initialize_udp_socket(): Creates and binds the primary UDP socket, configuring it for non-blocking operation. Returns a handle to the UDP socket.
-
-arm_socket_for_write(connection_object): A thread-safe function that allows a worker thread to signal the main I/O thread that a connection is ready to be written to.
-
-4. Architectural Notes
-The interface is designed to be abstract and can be implemented using any modern asynchronous I/O framework (e.g., epoll, kqueue, IOCP, libuv, asyncio, Netty).
-
-The design separates the network I/O logic (this module) from the protocol-handling logic.
-
-////////////////////////
 
 #  Specification: CloudCoin Network Header Interface
 

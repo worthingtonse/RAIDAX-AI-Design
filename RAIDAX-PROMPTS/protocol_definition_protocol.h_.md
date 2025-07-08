@@ -1,4 +1,4 @@
-# Language-Agnostic Specification: Enhanced CloudCoin Protocol Header Interface
+# Specification:   Protocol Header Interface
 
 ## 1. Module Purpose
 This specification defines the enhanced public interface for the CloudCoin protocol layer with advanced cryptographic security. It establishes the data structures, constants, enumerations, and function signatures required to implement the RAIDA protocol handling system with secure per-message nonce generation and streamlined ticket management.

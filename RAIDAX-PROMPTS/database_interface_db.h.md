@@ -1,49 +1,5 @@
-Language-Agnostic Specification: Database Interface
-1. Module Purpose
-This module defines the public interface and data structures for the in-memory database layer. It is responsible for managing the state of all "coins" and their corresponding data pages. The design must support high-performance, concurrent access and an efficient, event-driven persistence mechanism.
 
-2. Data Models
-2.1. Page Object
-A structure representing a single "page" of coin data held in memory.
-
-data: A raw byte array of a fixed size (RECORDS_PER_PAGE × 17 bytes) containing authenticity numbers (ANs) and other metadata.
-
-denomination: An integer representing the page's denomination class.
-
-page_number: An integer identifier for the page.
-
-concurrency_primitive: A lock or mutex to ensure thread-safe access to the page's data.
-
-in_dirty_queue: A boolean flag to prevent the same page from being added to the persistence queue multiple times before it has been written to disk.
-
-reservation_metadata: Fields to track temporary client reservations (e.g., reserved_by_id, reservation_timestamp).
-
-2.2. Dirty Page Queue
-A thread-safe, first-in, first-out (FIFO) queue that holds references to Page Object instances that have been modified and need to be written to disk.
-
-3. Required Functions
-initialize_database(): Initializes the database system, including creating directories, loading all page data from disk into memory, and launching the background persistence thread.
-
-get_page_and_lock(denomination, page_number): Retrieves a specific page from the in-memory store and acquires its lock for exclusive access. Returns a handle to the locked page object.
-
-unlock_page(page_object): Releases the lock on a page object.
-
-add_page_to_dirty_queue(page_object): A thread-safe, non-blocking function that adds a modified page to the persistence queue and signals the persistence thread.
-
-start_persistence_thread(): Launches the background thread responsible for writing dirty pages to disk.
-
-4. Architectural Notes
-This design assumes all pages are loaded into RAM and modified in-place. It is not designed for shared-nothing or distributed memory architectures.
-
-The interface abstracts the persistence mechanism, allowing the implementation to use any thread-safe queue and signaling primitive (e.g., condition variables).
-
-
-
-
-/////////////////
-
-
-# Specification: CloudCoin Database Header Interface
+# Specification:  Database Header Interface
 
 ## 1. Module Purpose
 This specification defines the public interface for the CloudCoin database layer. It establishes the data structures, constants, function signatures, and type definitions required for implementing a thread-safe, high-performance coin database system.
@@ -400,15 +356,5 @@ All functions must validate:
 - Error logging should include context information
 - Performance metrics should be collectible
 
-## 12. Backwards Compatibility Notes
-
-### 12.1 Deprecated Features
-- **is_dirty flag**: Replaced by in_dirty_queue and event-driven persistence
-- **Polling sync**: Replaced by condition variable signaling
-
-### 12.2 Migration Considerations
-- File format remains compatible with previous versions
-- API changes are additive (new queue-based functions)
-- Thread safety improvements are transparent to callers
 
 This header specification provides complete interface definition for implementing a CloudCoin database system. Developers should implement all specified functions while adapting data types and synchronization primitives to their target platform.
