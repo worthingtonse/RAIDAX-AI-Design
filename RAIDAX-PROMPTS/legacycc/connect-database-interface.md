@@ -5,7 +5,7 @@ This header file defines the interface for legacy CloudCoin system operations an
 
 ## 2. System Architecture Overview
 
-### 2.1 Interface Components
+### 2.1 Interface Components/functionality
 - **Legacy Coin Operations**: Version 1 coin system detection, deletion, and calculation
 - **Database Management**: Connection initialization and cleanup operations
 - **Deprecated SQL Interface**: Legacy SQL functions marked for removal
