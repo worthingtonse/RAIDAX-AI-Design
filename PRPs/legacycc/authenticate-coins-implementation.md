@@ -5,7 +5,7 @@ This implementation file provides legacy CloudCoin authentication and detection 
 
 ## 2. System Architecture Overview
 
-### 2.1 Implementation Components
+### 2.1 Implementation Components/functionality
 - **Legacy Coin Detection**: Version 1 CloudCoin authentication and validation
 - **Database Authentication**: Secure database lookup for authentication numbers
 - **Cryptographic Verification**: Authentication number comparison and validation

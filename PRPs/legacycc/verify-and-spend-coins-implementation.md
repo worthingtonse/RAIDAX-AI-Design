@@ -5,7 +5,7 @@ This implementation file provides legacy CloudCoin POWN (Proof of Ownership) ope
 
 ## 2. System Architecture Overview
 
-### 2.1 Implementation Components
+### 2.1 Implementation Components/functionality
 - **Ownership Verification**: Cryptographic proof of ownership through XOR sum calculation
 - **Database Operations**: Secure database queries for coin verification and status updates
 - **Coin Deletion Process**: Multi-phase deletion with authentication and status marking
@@ -139,12 +139,6 @@ This implementation file provides legacy CloudCoin POWN (Proof of Ownership) ope
 - **Status Transition**: Change network node status from active (1) to spent (2)
 - **Error Handling**: Handle update failures with appropriate error responses
 
-**Transaction Considerations**:
-- **Atomicity**: Consider atomic operations for consistency
-- **Rollback Strategy**: Plan for rollback in case of partial failures
-- **Consistency**: Maintain database consistency throughout operation
-- **Isolation**: Ensure operation isolation from concurrent transactions
-
 ### 4.7 Error Handling and Recovery Implementation
 **Purpose**: Handle various error conditions while maintaining database consistency and security.
 
@@ -231,8 +225,6 @@ This implementation file provides legacy CloudCoin POWN (Proof of Ownership) ope
 ## 6. Transaction and Consistency Considerations
 
 ### 6.1 Transaction Management
-- **Atomic Operations**: Consider atomic transaction operations for coin deletion
-- **Rollback Strategy**: Implement rollback strategy for partial failures
 - **Consistency Guarantees**: Ensure database consistency throughout operation
 - **Isolation Levels**: Use appropriate transaction isolation levels
 
