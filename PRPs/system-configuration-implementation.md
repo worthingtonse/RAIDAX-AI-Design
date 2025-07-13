@@ -1,4 +1,3 @@
-
 # Configuration Management Implementation (config.c)
 
 ## Module Purpose
