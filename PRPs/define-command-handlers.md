@@ -1,414 +1,301 @@
-
-# Command Function Declarations Header (commands.h)
+# Command Interface Definitions (commands.h)
 
 ## Module Purpose
-This header file defines the complete interface for all command handler functions in the RAIDA server system. It serves as the central registry of available commands organized by functional groups, providing function declarations for status monitoring, authentication, healing, administrative operations, key exchange, locker services, change operations, shard management, crossover transactions, RPC services, and filesystem operations.
-
-## Function Categories and Declarations
-
-### 1. Status and Monitoring Commands
-**Purpose:** Server health, version, and operational status reporting
-
-#### `cmd_echo`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure)
-**Purpose:** Health check endpoint for server responsiveness verification
-
-#### `cmd_version`
-**Parameters:** Connection information structure pointer  
-**Returns:** None (modifies connection structure with version data)
-**Purpose:** Returns server build version information
-
-#### `cmd_audit`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with circulation data)
-**Purpose:** Provides comprehensive coin circulation audit across all denominations
-
-#### `cmd_show_stats`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with statistics data)
-**Purpose:** Returns administrative statistics (requires authentication)
-
-### 2. Authentication Commands
-**Purpose:** Coin detection and proof-of-ownership operations
-
-#### `cmd_detect`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with detection results)
-**Purpose:** Detects individual coin authenticity and ownership
-
-#### `cmd_detect_sum`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with batch detection results)
-**Purpose:** Batch detection operation for multiple coins with sum verification
-
-#### `cmd_pown`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with ownership proof)
-**Purpose:** Proves ownership of individual coin and updates authentication
-
-#### `cmd_pown_sum`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with batch ownership results)
-**Purpose:** Batch ownership proof operation with cryptographic sum verification
-
-### 3. Healing Commands
-**Purpose:** Network healing and coin recovery operations
-
-#### `cmd_get_ticket`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with ticket data)
-**Purpose:** Issues healing ticket for failed coin recovery operations
-
-#### `cmd_validate_ticket`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with validation results)
-**Purpose:** Validates healing ticket and coordinates inter-server healing
-
-#### `cmd_find`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with search results)
-**Purpose:** Searches for coins across the network for healing operations
-
-#### `cmd_fix`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with fix results)
-**Purpose:** Repairs coin data inconsistencies identified during healing
-
-### 4. Executive/Administrative Commands
-**Purpose:** System administration and coin lifecycle management
-
-#### `cmd_get_available_sns`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with available serial numbers)
-**Purpose:** Returns available serial numbers for coin creation
-
-#### `cmd_create_coins`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with creation results)
-**Purpose:** Creates new coins in the system (administrative operation)
-
-#### `cmd_delete_coins`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with deletion results)
-**Purpose:** Deletes coins from the system (administrative operation)
-
-#### `cmd_free_coins`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with liberation results)
-**Purpose:** Frees coins for reuse (administrative operation)
-
-#### `cmd_get_all_sns`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with complete serial number list)
-**Purpose:** Returns comprehensive serial number inventory
-
-### 5. Key Exchange Commands
-**Purpose:** Cryptographic key management and secure communication
-
-#### `cmd_encrypt_key`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with encrypted key)
-**Purpose:** Generates and encrypts session keys for secure communication
-
-#### `cmd_post_key`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with storage confirmation)
-**Purpose:** Stores cryptographic keys in the chat system
-
-#### `cmd_get_key`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with retrieved key data)
-**Purpose:** Retrieves stored cryptographic keys from chat system
-
-#### `cmd_key_alert`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure)
-**Purpose:** Handles key alert notifications
-
-#### `cmd_decrypt_raida_key`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with decryption results)
-**Purpose:** Decrypts messages from other RAIDA servers
-
-### 6. Locker Service Commands
-**Purpose:** Secure coin storage and trading marketplace operations
-
-#### `cmd_store_sum`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with storage results)
-**Purpose:** Stores collection of coins in secure locker
-
-#### `cmd_store_multiple_sum`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with batch storage results)
-**Purpose:** Batch storage operation for multiple lockers
-
-#### `cmd_peek`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with locker contents)
-**Purpose:** Inspects contents of locker without transfer
-
-#### `cmd_remove`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with removal results)
-**Purpose:** Removes coins from locker and transfers ownership
-
-#### `cmd_put_for_sale`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with sale listing confirmation)
-**Purpose:** Creates trade locker for marketplace sales
-
-#### `cmd_list_lockers_for_sale`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with marketplace listings)
-**Purpose:** Lists available trade lockers by currency type
-
-#### `cmd_buy`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with purchase results)
-**Purpose:** Executes purchase of trade locker
-
-#### `cmd_remove_trade_locker`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with removal confirmation)
-**Purpose:** Removes trade locker from marketplace
-
-#### `cmd_peek_trade_locker`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with trade locker contents)
-**Purpose:** Inspects trade locker contents without affecting sale status
-
-### 7. Change Operations Commands
-**Purpose:** Coin denomination conversion and value exchange
-
-#### `cmd_get_available_change_sns`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with available change serial numbers)
-**Purpose:** Returns serial numbers available for change operations
-
-#### `cmd_break`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with break operation results)
-**Purpose:** Breaks larger denomination coins into smaller ones
-
-#### `cmd_join`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with join operation results)
-**Purpose:** Combines smaller denomination coins into larger ones
-
-### 8. Shard Management Commands
-**Purpose:** Cross-blockchain coin migration and shard operations
-
-#### `cmd_switch_shard_sum`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure)
-**Purpose:** Legacy shard switch operation (stub implementation)
-
-#### `cmd_pickup_coins`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with pickup results)
-**Purpose:** Takes ownership of coins transferred from another shard
-
-#### `cmd_get_sns`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with available serial numbers)
-**Purpose:** Returns available serial numbers for shard operations
-
-#### `cmd_rollback_switch_shard`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure)
-**Purpose:** Rolls back failed shard switch operations (stub implementation)
-
-#### `cmd_switch_shard_sum_with_sns`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with migration results)
-**Purpose:** Executes shard migration with serial number specification
-
-### 9. Crossover Transaction Commands
-**Purpose:** Inter-blockchain value transfer and exchange operations
-
-#### `cmd_reserve_locker`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with reservation confirmation)
-**Purpose:** Reserves locker for crossover transactions
-
-#### `cmd_check_depository`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with depository status)
-**Purpose:** Checks blockchain transaction confirmation status
-
-#### `cmd_withdraw_from_depository`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with withdrawal results)
-**Purpose:** Withdraws cryptocurrency from depository
-
-#### `cmd_trigger_transaction`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure)
-**Purpose:** Triggers crossover transaction execution
-
-#### `cmd_get_exchange_rate`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with exchange rate data)
-**Purpose:** Returns current cryptocurrency exchange rates
-
-### 10. RPC Service Commands
-**Purpose:** Remote procedure call and network utility operations
-
-#### `cmd_nslookup`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with DNS lookup results)
-**Purpose:** Performs DNS lookups for network operations
-
-### 11. Filesystem Commands
-**Purpose:** Object storage and file management operations
-
-#### `cmd_put_object`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with storage confirmation)
-**Purpose:** Stores objects in filesystem
-
-#### `cmd_get_object`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with object data)
-**Purpose:** Retrieves objects from filesystem
-
-#### `cmd_rm_object`
-**Parameters:** Connection information structure pointer
-**Returns:** None (modifies connection structure with deletion confirmation)
-**Purpose:** Removes objects from filesystem
-
-## Supporting Function Declarations
-
-### Key Exchange Utilities
-
-#### `load_my_enc_coin`
-**Parameters:**
-- Denomination identifier (8-bit unsigned integer)
-- Serial number (32-bit unsigned integer)
-- Output buffer pointer (minimum 400 bytes)
-
-**Returns:** Integer status code (0 for success, negative for error)
-**Purpose:** Loads encryption coin data from local filesystem for cryptographic operations
-
-#### `get_crypto_key`
-**Parameters:**
-- Currency ticker string pointer
-- Size output pointer (integer)
-
-**Returns:** Character buffer pointer (NULL on failure)
-**Purpose:** Retrieves cryptocurrency private keys for withdrawal operations
-
-### Threading Support Structures
-
-#### `validate_ticket_arg_t`
-**Purpose:** Structure for passing parameters to threaded ticket validation operations
-**Members:**
-- RAIDA server index (8-bit signed integer)
-- Ticket identifier (32-bit unsigned integer) 
-- Connection information pointer
-- Result coin array pointer
-- Result coin count (32-bit unsigned integer)
-
-#### `send_validate_ticket_job`
-**Parameters:** Thread argument structure pointer
-**Returns:** Thread result pointer
-**Purpose:** Worker thread function for distributed ticket validation
-
-### Data Structures
-
-#### `coin_counter_t`
-**Purpose:** Structure for counting coins by type
-**Members:**
-- Coin identification structure
-- Count value (32-bit unsigned integer)
-
-## Integration and Dependencies
-
-## data structure context 
-`ConnectionContext` (conn_info_t)
-`body_size`: Size of incoming request body
-`command_status`: Numeric status/result code
-
-`output`: Byte array or structured result
-
-`output_size`: Size of output buffer
-
-`CoinRecord`:Contains metadata used to represent a coin (format defined by protocol layer)
-
-`Statistics`:Collection of counters and metrics for each command
-
-`CoinCounter`
-`coin`: CoinRecord
-
-`count`: Number of matching coins found
-
-`TicketValidationParams`:
-`raida_index`: Server index initiating the validation
-
-`ticket`: Ticket ID
-
-`connection`: Connection context
-
-`result_coins`: Output list of verified coins
-
-`result_count`: Total number of coins validated
-
-### Required External Types
-- Connection information structure from protocol layer
-- Coin identification structure from protocol definitions
-- Database page structures from database layer
-- Thread parameter structures for concurrent operations
+This module defines the complete interface for all RAIDA command handlers, providing function declarations, data structures, and type definitions for the entire command processing system. It serves as the central interface specification for all command groups including status, authentication, healing, executive, key exchange, banking, locker, change-making, shard management, and integrity operations.
+
+## Core Function Categories
+
+### 1. Status Command Handlers
+**Functions:**
+- `cmd_echo`: Echo service for connectivity testing
+- `cmd_version`: Server version information retrieval
+- `cmd_audit`: System audit and health check operations
+- `cmd_show_stats`: Statistical information display
+
+**Parameters:** All status commands take connection information structure
+**Returns:** None (modify connection structure with results)
+**Purpose:** Provide system status, health monitoring, and basic connectivity verification
+
+### 2. Authentication Command Handlers
+**Functions:**
+- `cmd_detect`: Individual coin authenticity verification
+- `cmd_detect_sum`: Batch coin authenticity verification using cryptographic sums
+- `cmd_pown`: Individual coin ownership transfer operations
+- `cmd_pown_sum`: Batch coin ownership transfer using delta transformations
+
+**Parameters:** All authentication commands take connection information structure
+**Returns:** None (modify connection structure with authentication results)
+**Purpose:** Core coin authentication and ownership management functionality
+
+### 3. Healing Command Handlers
+**Functions:**
+- `cmd_get_ticket`: Ticket acquisition for healing operations
+- `cmd_validate_ticket`: Ticket validation by other RAIDA servers
+- `cmd_find`: Coin discovery and location operations
+- `cmd_fix`: Distributed consensus-based coin recovery
+
+**Parameters:** All healing commands take connection information structure
+**Returns:** None (modify connection structure with healing results)
+**Purpose:** Distributed coin recovery and network healing operations
+
+**Threading Functions:**
+- `send_validate_ticket_job`: Thread worker for parallel ticket validation
+  - **Parameters:** Thread argument structure containing server info and ticket data
+  - **Returns:** Thread result (modifies argument structure with response)
+  - **Purpose:** Parallel network communication for consensus operations
+
+### 4. Executive Command Handlers
+**Functions:**
+- `cmd_get_available_sns`: Available serial number query for administrative operations
+- `cmd_create_coins`: Administrative coin creation with secure authentication numbers
+- `cmd_delete_coins`: Administrative coin deletion with authentication verification
+- `cmd_free_coins`: Administrative coin liberation without authentication
+- `cmd_get_all_sns`: Complete denomination bitmap retrieval
+
+**Parameters:** All executive commands take connection information structure
+**Returns:** None (modify connection structure with administrative results)
+**Purpose:** High-level administrative coin management and system maintenance
+
+### 5. Key Exchange Command Handlers
+**Functions:**
+- `cmd_encrypt_key`: Key encryption operations for secure communication
+- `cmd_post_key`: Key posting and distribution operations
+- `cmd_chat_get_key`: Chat system key retrieval
+- `cmd_chat_post_key`: Chat system key posting
+- `cmd_get_key`: General key retrieval operations
+- `cmd_key_alert`: Key change notification system
+- `cmd_decrypt_raida_key`: RAIDA-specific key decryption
+
+**Parameters:** All key exchange commands take connection information structure
+**Returns:** None (modify connection structure with key exchange results)
+**Purpose:** Secure key management and cryptographic communication setup
+
+**Helper Functions:**
+- `load_my_enc_coin`: Load encrypted coin data for key operations
+  - **Parameters:** Denomination (1 byte), serial number (4 bytes), output buffer (16 bytes)
+  - **Returns:** Integer status code
+  - **Purpose:** Retrieve encrypted coin data for cryptographic operations
+
+### 6. Locker Command Handlers
+**Functions:**
+- `cmd_store_sum`: Store coins in locker with sum verification
+- `cmd_store_multiple_sum`: Store multiple coin sets in locker
+- `cmd_peek`: Examine locker contents without removal
+- `cmd_remove`: Remove coins from locker
+- `cmd_put_for_sale`: Place locker for sale in marketplace
+- `cmd_list_lockers_for_sale`: List available lockers for purchase
+- `cmd_buy`: Purchase locker from marketplace
+- `cmd_remove_trade_locker`: Remove locker from trading system
+- `cmd_peek_trade_locker`: Examine trade locker contents
+
+**Parameters:** All locker commands take connection information structure
+**Returns:** None (modify connection structure with locker operation results)
+**Purpose:** Secure coin storage, trading, and marketplace operations
+
+### 7. Change-Making Command Handlers
+**Functions:**
+- `cmd_get_available_change_sns`: Available serial numbers for change operations
+- `cmd_break`: Break larger denomination coin into smaller coins
+- `cmd_join`: Join smaller denomination coins into larger coin
+
+**Parameters:** All change commands take connection information structure
+**Returns:** None (modify connection structure with change operation results)
+**Purpose:** Denomination conversion and flexible value management
+
+### 8. Shard Management Command Handlers
+**Functions:**
+- `cmd_switch_shard_sum`: Switch coins between shards (legacy interface)
+- `cmd_pickup_coins`: Take ownership of coins moved from another shard
+- `cmd_get_sns`: Get available serial numbers for shard operations
+- `cmd_rollback_switch_shard`: Rollback failed shard switching operations
+- `cmd_switch_shard_sum_with_sns`: Switch coins between shards with serial number management
+
+**Parameters:** All shard commands take connection information structure
+**Returns:** None (modify connection structure with shard operation results)
+**Purpose:** Cross-shard operations and legacy system integration
+
+### 9. Crossover Command Handlers
+**Functions:**
+- `cmd_reserve_locker`: Reserve locker for crossover operations
+- `cmd_check_depository`: Check depository status and contents
+- `cmd_withdraw_from_depository`: Withdraw coins from depository
+- `cmd_trigger_transaction`: Trigger crossover transaction execution
+- `cmd_get_exchange_rate`: Get current exchange rates
+
+**Parameters:** All crossover commands take connection information structure
+**Returns:** None (modify connection structure with crossover operation results)
+**Purpose:** Cross-platform integration and external system interfaces
+
+### 10. RPC Command Handlers
+**Functions:**
+- `cmd_nslookup`: DNS lookup and name resolution services
+
+**Parameters:** All RPC commands take connection information structure
+**Returns:** None (modify connection structure with RPC results)
+**Purpose:** Network services and remote procedure call operations
+
+### 11. Filesystem Command Handlers
+**Functions:**
+- `cmd_put_object`: Store object in distributed filesystem
+- `cmd_get_object`: Retrieve object from distributed filesystem
+- `cmd_rm_object`: Remove object from distributed filesystem
+
+**Parameters:** All filesystem commands take connection information structure
+**Returns:** None (modify connection structure with filesystem operation results)
+**Purpose:** Distributed file storage and retrieval operations
+
+**Helper Functions:**
+- `get_crypto_key`: Retrieve cryptographic key for filesystem operations
+  - **Parameters:** Key identifier string, output length pointer
+  - **Returns:** Key data pointer (or null on failure)
+  - **Purpose:** Cryptographic key management for secure file operations
+
+### 12. Integrity Command Handlers
+**Functions:**
+- `cmd_get_merkle_root`: Retrieve Merkle tree root hash for denomination
+- `cmd_get_merkle_node`: Retrieve specific Merkle tree node hash
+
+**Parameters:** All integrity commands take connection information structure
+**Returns:** None (modify connection structure with integrity verification results)
+**Purpose:** Cryptographic integrity verification and network synchronization
+
+## Data Structures and Type Definitions
+
+### Connection Information Structure
+**Type:** `conn_info_t`
+**Purpose:** Contains all request/response data and connection state information
+**Used By:** All command handlers as primary parameter
+**Contains:**
+- Request payload data and size
+- Response buffer and size
+- Connection state and networking information
+- Authentication and encryption context
+- Timing and statistical information
+
+### Coin Counter Structure
+**Type:** `coin_counter_t`
+**Purpose:** Tracks coin information and vote counts for consensus operations
+**Fields:**
+- `coin`: Basic coin structure with denomination and serial number
+- `cnt`: Vote count for consensus operations
+**Used By:** Healing operations for distributed consensus tracking
+
+### Ticket Validation Arguments
+**Type:** `validate_ticket_arg_t`
+**Purpose:** Thread argument structure for parallel ticket validation
+**Fields:**
+- `raida_idx`: Target RAIDA server index (1 byte)
+- `ticket`: Ticket identifier (4 bytes)
+- `ci`: Connection information pointer
+- `rv_coins`: Response coin array pointer
+- `rv_num_coins`: Response coin count (4 bytes)
+**Used By:** Healing operations for parallel server communication
+
+### Basic Coin Structure
+**Type:** `coin_t`
+**Purpose:** Fundamental coin identification structure
+**Fields:**
+- `denomination`: Coin denomination identifier (1 byte)
+- `sn`: Serial number (4 bytes)
+**Used By:** All coin-related operations throughout the system
+
+## Function Pointer Types
+
+### Command Handler Type
+**Type:** `command_handler_t`
+**Signature:** `void (*handler)(conn_info_t *)`
+**Purpose:** Standard interface for all command processing functions
+**Used By:** Protocol system for command dispatch and execution
+
+## Integration Requirements
 
 ### Protocol Integration
-- All command functions follow standard signature pattern ( Every command function receives a request context (connection structure) and populates its output buffer    and status code in place. No values are returned from the function.”)
-- Connection structure modification for response data
-- Status code setting for operation results
-- Output buffer management for response payloads
+- All command handlers must conform to standard `command_handler_t` interface
+- All handlers receive `conn_info_t` structure containing request data
+- All handlers modify connection structure with response data and status
+- All handlers must handle error conditions gracefully
 
-### Module Dependencies
-- **Protocol Layer:** Connection management, request/response handling
-- **Database Layer:** Coin data access, page cache management
-- **Cryptographic Utilities:** Key generation, encryption/decryption
-- **Network Layer:** Inter-server communication
-- **Filesystem Interface:** Object storage, key management
-- **Threading System:** Concurrent operation support
+### Database Integration
+- Commands requiring coin data must use database layer for page access
+- Page locking must be used for thread-safe coin data access
+- Modified pages must be marked as dirty for persistence
+- Proper resource cleanup required on all code paths
 
-### Used By
-- **Command Dispatcher:** Function pointer resolution and invocation
-- **Protocol Handler:** Command routing and execution
-- **Network Layer:** Request processing and response generation
+### Security Integration
+- Authentication commands must verify cryptographic signatures
+- Administrative commands must validate admin keys
+- All sensitive operations must use secure random number generation
+- Error conditions must not leak sensitive information
 
-## Security Considerations
+### Statistics Integration
+- Successful operations must update relevant statistics counters
+- Value-based operations must update value tracking statistics
+- Performance metrics must be recorded for monitoring
+- Error rates must be tracked for health monitoring
 
-### Authentication Requirements
-- Administrative commands require authentication key validation
-- Executive operations restricted to authorized users
-- Key exchange operations require proper encryption coin possession
+## Error Handling Standards
 
 ### Input Validation
-- All functions must validate connection structure integrity
-- Payload size validation required before processing
-- Parameter bounds checking for all numeric inputs
+- All payloads must be validated for size and alignment
+- All parameters must be checked against acceptable ranges
+- All authentication data must be cryptographically verified
+- All resource allocations must be checked for success
 
-### Error Handling
-- Consistent error code reporting through connection structure
-- Resource cleanup on operation failure
-- Security event logging for administrative operations
+### Error Reporting
+- All errors must use standard error codes from protocol definitions
+- Error conditions must be logged appropriately
+- Resource cleanup must occur on all error paths
+- Connection state must be properly set for error responses
 
-###  Command Organization
-Commands are organized into the following functional categories:
-- **Status**: System status and diagnostics (4 commands)
-- **Authentication**: Coin authentication and ownership (4 commands)
-- **Healing**: Coin repair and recovery (4 commands)
-- **Executive**: Administrative coin operations (5 commands)
-- **Key Exchange**: Cryptographic key management (7 commands)
-- **Locker**: Coin storage and trading (9 commands)
-- **Change**: Denomination conversion (3 commands)
-- **Shards**: Shard management (5 commands)
-- **Crossover**: Cross-system operations (5 commands)
-- **RPC**: Remote procedure calls (1 command)
-- **Filesystem**: Object storage operations (3 commands)
+### Recovery Mechanisms
+- Failed operations must leave system state unchanged
+- Partial operations must be rolled back on failure
+- Resources must be properly released on all code paths
+- Error conditions must not corrupt system state
 
-This header provides the complete command interface definition for the RAIDA server system, enabling modular command implementation while maintaining consistent function signatures and error handling patterns across all operational categories.
+## Threading and Concurrency
+
+### Thread Safety Requirements
+- All command handlers must be thread-safe
+- Database page locking must be used for coin data access
+- Shared resources must be properly synchronized
+- Thread-local storage must be used where appropriate
+
+### Parallel Processing
+- Some operations support parallel execution (healing consensus)
+- Thread pools may be used for concurrent request processing
+- Network operations may use separate threads for efficiency
+- Blocking operations must not interfere with other requests
+
+### Resource Management
+- All allocated memory must be properly freed
+- All acquired locks must be properly released
+- All open files or network connections must be closed
+- Thread resources must be cleaned up on exit
+
+## Dependencies and Integration Points
+
+### Required Modules
+- **Protocol System:** For request/response handling and command dispatch
+- **Database Layer:** For coin data access and page management
+- **Network Layer:** For inter-server communication and client connections
+- **Cryptographic Utilities:** For secure operations and authentication
+- **Configuration System:** For server parameters and validation
+- **Statistics System:** For operation tracking and monitoring
+- **Logging System:** For debugging and audit trail
+
+### External Interfaces
+- **Legacy Systems:** Integration with CloudCoin v1 and SuperCoin systems
+- **Cryptographic Libraries:** SHA-256, AES, and other cryptographic functions
+- **Network Libraries:** TCP/UDP communication and protocol handling
+- **File System:** For persistent storage and data management
+- **Threading Libraries:** For concurrent operation support
+
+### Configuration Dependencies
+- Server identification and network configuration
+- Cryptographic key management and validation
+- Database configuration and storage parameters
+- Network timeouts and operational parameters
+- Administrative authentication and access control
+
+This command interface module provides the complete specification for all RAIDA command operations, ensuring consistent interfaces, proper error handling, and secure operation across the entire system.

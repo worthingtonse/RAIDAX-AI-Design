@@ -1,111 +1,134 @@
-# Healing Commands Implementation (cmd_healing)
+# Healing Command Handlers (cmd_healing.c)
 
 ## Module Purpose
-This module implements the network healing system for the RAIDA network, providing coin recovery, ticket-based coordination, and distributed consensus mechanisms. It enables automatic recovery of coins that may have inconsistent state across RAIDA servers through collaborative verification and repair operations with enhanced concurrency through fine-grained ticket locking.
+This module implements the healing and recovery operations for the RAIDA network, providing mechanisms to recover coins that may have been lost or corrupted due to network issues, server failures, or synchronization problems. It includes ticket-based authentication, coin discovery, and distributed consensus-based recovery operations.
 
 ## Core Functionality
 
-### 1. Ticket Issuance (`cmd_get_ticket`)
+### 1. Ticket Acquisition (`cmd_get_ticket`)
 **Parameters:**
-- Connection information structure
-- Input: Variable-length payload (minimum 39 bytes) containing coin authentication data
+- Connection information structure containing request data
+- Input: Variable-length payload (minimum 39 bytes) with coin authentication data
 
 **Returns:** None (modifies connection structure with ticket information and authentication results)
 
-**Purpose:** Verifies coin authenticity and issues healing tickets for authentic coins that can be used in distributed healing operations.
+**Purpose:** Verifies coin authenticity and issues a ticket for authentic coins, enabling subsequent healing operations across the RAIDA network.
 
 **Process:**
 1. **Request Validation:**
    - Validates minimum payload size (39 bytes)
    - Calculates coin count from payload size (21 bytes per coin record)
-   - Validates coin data alignment to prevent parsing errors
+   - Validates coin data alignment and format
 
 2. **Coin Authentication:**
    - For each coin in the request:
-     - Extracts denomination and serial number (5 bytes)
+     - Extracts denomination, serial number, and authentication number
      - Retrieves coin page using on-demand cache system
-     - Compares provided authentication number (16 bytes) with stored value
-     - Builds bitmap of authenticated coins
+     - Compares provided authentication number with stored value
+     - Tracks authentic versus failed coins
 
-3. **Enhanced Ticket Management:**
-   - **OPTIMIZATION:** Uses get_free_ticket_slot() which returns pre-locked ticket
-   - Allocates ticket only when first authentic coin found
-   - Populates ticket with all authenticated coins up to MAX_COINS_PER_TICKET
-   - **NEW:** Uses unlock_ticket_entry() for proper fine-grained unlocking
+3. **Ticket Allocation:**
+   - Allocates free ticket slot from ticket memory pool
+   - Stores authenticated coins in ticket structure
+   - Generates unique ticket identifier
+   - Initializes claim tracking for all RAIDA servers
 
 4. **Response Generation:**
-   - **STATUS_ALL_PASS:** All coins authentic, returns 4-byte ticket ID
-   - **STATUS_ALL_FAIL:** No coins authentic, no ticket issued
-   - **STATUS_MIXED:** Partial authentication with bitmap + ticket ID
+   - Creates bitmap indicating coin authentication results
+   - Includes ticket identifier for successful operations
+   - Provides status based on authentication results:
+     - **STATUS_ALL_PASS:** All coins authentic, ticket issued
+     - **STATUS_ALL_FAIL:** No coins authentic, no ticket
+     - **STATUS_MIXED:** Partial success, ticket issued with bitmap
 
-**Concurrency Enhancement:**
-- Per-ticket locking eliminates global ticket pool contention
-- Non-blocking ticket allocation improves performance under load
-- Proper lock management prevents deadlocks and resource leaks
+**Security Features:**
+- Authentication number verification before ticket issuance
+- Ticket-based authorization for subsequent healing operations
+- Unique ticket identifiers prevent replay attacks
+- Time-limited ticket validity
+
+**Input Format:**
+- Variable: Coin authentication records (21 bytes each: 1 byte denomination + 4 bytes serial + 16 bytes authentication)
+- 2 bytes: End-of-frame marker
+
+**Output Format:**
+- Variable: Authentication result bitmap (1 bit per coin)
+- 4 bytes: Ticket identifier (for successful operations)
 
 ### 2. Ticket Validation (`cmd_validate_ticket`)
 **Parameters:**
 - Connection information structure
-- Input: 23-byte payload containing RAIDA ID and ticket number
+- Input: 23-byte payload with RAIDA server ID and ticket identifier
 
-**Returns:** None (modifies connection structure with ticket coin list)
+**Returns:** None (modifies connection structure with ticket coin information)
 
-**Purpose:** Allows other RAIDA servers to claim and validate healing tickets for distributed consensus operations.
+**Purpose:** Allows other RAIDA servers to claim and validate tickets, enabling distributed healing operations across the network.
 
 **Process:**
 1. **Request Validation:**
    - Validates exact payload size (23 bytes)
-   - Extracts claiming RAIDA ID and validates range (0-24)
-   - Extracts ticket number for lookup
+   - Extracts requesting RAIDA server ID and ticket identifier
+   - Validates RAIDA server ID within acceptable range
 
-2. **Enhanced Ticket Access:**
-   - **OPTIMIZATION:** get_ticket_entry() now returns locked ticket entry
-   - Validates ticket exists and is active
-   - Checks if ticket already claimed by requesting RAIDA
-   - **NEW:** Must call unlock_ticket_entry() even on error conditions
+2. **Ticket Verification:**
+   - Locates ticket entry using ticket identifier
+   - Verifies ticket exists and is valid
+   - Checks if ticket has already been claimed by requesting server
+   - Prevents duplicate claims from same server
 
-3. **Ticket Processing:**
-   - Allocates response buffer for coin list (5 bytes per coin)
-   - Copies all coins from ticket to response buffer
-   - Marks ticket as claimed by requesting RAIDA server
-   - Sets success status for valid ticket claim
+3. **Ticket Information Retrieval:**
+   - Retrieves coin list from ticket structure
+   - Prepares response with coin denomination and serial number data
+   - Marks ticket as claimed by requesting server
+   - Maintains claim tracking for audit purposes
 
-4. **Concurrency Improvements:**
-   - **Fine-grained locking:** Only locks specific ticket, not entire pool
-   - **Automatic unlocking:** Proper unlock on all code paths
-   - **Thread safety:** Safe concurrent access to different tickets
+4. **Response Generation:**
+   - Returns list of coins associated with ticket
+   - Provides coin identification information for healing operations
+   - Updates ticket claim status
 
-**Inter-Server Coordination:**
-- Enables distributed healing consensus across RAIDA network
-- Prevents double-claiming through per-RAIDA tracking
-- Supports complex multi-server healing operations
+**Security Features:**
+- Server identity verification
+- Duplicate claim prevention
+- Ticket validity checking
+- Audit trail through claim tracking
+
+**Input Format:**
+- 1 byte: Requesting RAIDA server ID
+- 4 bytes: Ticket identifier
+- 18 bytes: Reserved/padding
+
+**Output Format:**
+- Variable: Coin list (5 bytes each: 1 byte denomination + 4 bytes serial number)
 
 ### 3. Coin Discovery (`cmd_find`)
 **Parameters:**
 - Connection information structure
-- Input: Variable-length payload (minimum 55 bytes) containing coin data with current and proposed authentication numbers
+- Input: Variable-length payload (minimum 55 bytes) with coin authentication data
 
 **Returns:** None (modifies connection structure with discovery results)
 
-**Purpose:** Searches for coins and determines whether they match current authentication numbers, proposed authentication numbers, or neither.
+**Purpose:** Checks if coins match either current authentication numbers or proposed new authentication numbers, enabling coin location during healing operations.
 
 **Process:**
 1. **Request Validation:**
    - Validates minimum payload size (55 bytes)
-   - Validates coin data alignment (37 bytes per coin record)
-   - Each record contains denomination + serial + current AN + proposed AN
+   - Calculates coin count from payload size (37 bytes per coin record)
+   - Validates coin data alignment and format
 
-2. **Coin Discovery Logic:**
-   - For each coin specification:
-     - Retrieves coin data using on-demand cache
+2. **Dual Authentication Check:**
+   - For each coin in the request:
+     - Extracts denomination, serial number, current AN, and proposed AN
+     - Retrieves coin page using on-demand cache system
      - Compares stored authentication number with current AN
-     - If no match, compares with proposed AN
-     - Records match type for each coin
+     - If no match, compares stored authentication number with proposed AN
+     - Records match type for response
 
-3. **Match Classification:**
-   - **0x1:** Coin matches current authentication number
-   - **0x2:** Coin matches proposed authentication number  
-   - **0x0:** Coin matches neither (not found or different owner)
+3. **Result Classification:**
+   - Tracks coins matching current authentication numbers
+   - Tracks coins matching proposed authentication numbers
+   - Counts coins with no matches
+   - Generates detailed response for mixed results
 
 4. **Response Generation:**
    - **STATUS_FIND_ALL_AN:** All coins match current authentication numbers
@@ -113,184 +136,242 @@ This module implements the network healing system for the RAIDA network, providi
    - **STATUS_FIND_NEITHER:** No coins match either authentication number
    - **STATUS_FIND_MIXED:** Mixed results with detailed per-coin response
 
-**Healing Applications:**
-- Identifies coins needing authentication number updates
-- Supports consensus-based coin state determination
-- Enables targeted healing of specific coin inconsistencies
+**Discovery Features:**
+- Dual authentication number checking
+- Detailed match type reporting
+- Batch processing for multiple coins
+- Efficient page access through caching
 
-### 4. Distributed Coin Repair (`cmd_fix`)
+**Input Format:**
+- Variable: Coin discovery records (37 bytes each: 1 byte denomination + 4 bytes serial + 16 bytes current AN + 16 bytes proposed AN)
+- 2 bytes: End-of-frame marker
+
+**Output Format:**
+- Variable: Match type indicators (1 byte each: 0x1 for current AN, 0x2 for proposed AN, 0x0 for no match)
+
+### 4. Coin Recovery (`cmd_fix`)
 **Parameters:**
 - Connection information structure
-- Input: Variable-length payload (minimum 139 bytes) containing coin list, proposed group, and ticket array
+- Input: Variable-length payload (minimum 139 bytes) with coin list and consensus data
 
-**Returns:** None (modifies connection structure with repair results)
+**Returns:** None (modifies connection structure with recovery results)
 
-**Purpose:** Repairs coin authentication numbers based on distributed consensus from multiple RAIDA servers using ticket validation.
+**Purpose:** Recovers coins using distributed consensus from other RAIDA servers, updating authentication numbers based on majority agreement.
 
 **Process:**
 1. **Request Validation:**
    - Validates minimum payload size (139 bytes)
-   - Validates coin data alignment (5 bytes per coin)
-   - Extracts proposed group data and ticket array
+   - Calculates coin count from payload size (5 bytes per coin)
+   - Extracts consensus data and ticket information
 
 2. **Distributed Consensus Collection:**
-   - Creates worker threads for each RAIDA server (25 threads)
-   - Each thread validates corresponding ticket with remote RAIDA
-   - Uses send_validate_ticket_job for network communication
-   - Collects coin lists from successful ticket validations
+   - Launches parallel threads to contact other RAIDA servers
+   - Sends ticket validation requests to all servers
+   - Collects responses with coin information
+   - Maintains timeout and error handling for network operations
 
 3. **Consensus Analysis:**
-   - Counts how many RAIDA servers confirm each coin
-   - Applies majority rule: coin repaired if confirmed by >12 servers
-   - Uses (TOTAL_RAIDA_SERVERS / 2) + 1 as consensus threshold
-   - Accumulates vote counts for each coin across all responses
+   - Counts votes for each coin from responding servers
+   - Requires majority consensus (more than half of servers)
+   - Validates coin existence across the network
+   - Determines which coins have sufficient consensus
 
-4. **Authentication Number Repair:**
+4. **Authentication Number Update:**
    - For coins with sufficient consensus:
-     - Generates new authentication number using MD5 hash
-     - Combines RAIDA ID, denomination, serial number, and proposed group
-     - Updates coin with new authentication number and MFS timestamp
+     - Generates new authentication number using cryptographic hash
+     - Updates coin record with new authentication number
+     - Sets MFS timestamp to current month
      - Marks database page as dirty for persistence
 
 5. **Response Generation:**
-   - Sets bitmap indicating which coins were successfully repaired
-   - Status based on overall repair success rates
-   - Provides detailed results for partial repair operations
+   - Creates bitmap indicating successful recovery for each coin
+   - Provides status based on recovery results:
+     - **STATUS_ALL_PASS:** All coins successfully recovered
+     - **STATUS_ALL_FAIL:** No coins had sufficient consensus
+     - **STATUS_MIXED:** Partial recovery with detailed bitmap
 
-**Distributed Processing:**
-- **Concurrent Validation:** All 25 RAIDA servers contacted simultaneously
-- **Thread Management:** One thread per RAIDA server for parallel processing
-- **Network Resilience:** Handles individual server failures gracefully
-- **Consensus Algorithm:** Majority voting determines repair decisions
+**Consensus Features:**
+- Distributed consensus across RAIDA network
+- Majority vote requirements for coin recovery
+- Parallel server communication for efficiency
+- Cryptographically secure authentication number generation
 
-### 5. Inter-Server Ticket Validation (`send_validate_ticket_job`)
+**Input Format:**
+- Variable: Coin identifiers (5 bytes each: 1 byte denomination + 4 bytes serial number)
+- 16 bytes: Consensus data (PG - proposed guidance)
+- 100 bytes: Ticket identifiers from other servers (4 bytes each × 25 servers)
+- 2 bytes: End-of-frame marker
+
+**Output Format:**
+- Variable: Recovery result bitmap (1 bit per coin)
+
+### 5. Network Ticket Validation Thread (`send_validate_ticket_job`)
 **Parameters:**
-- Thread argument structure containing RAIDA index, ticket number, and connection info
+- Thread argument structure containing RAIDA server index, ticket ID, and response storage
 
-**Returns:** Thread result pointer
+**Returns:** Thread result (modifies argument structure with response data)
 
-**Purpose:** Worker thread function that validates tickets with remote RAIDA servers for distributed consensus.
+**Purpose:** Executes in separate thread to validate tickets with other RAIDA servers, enabling parallel consensus collection for healing operations.
 
 **Process:**
 1. **Network Connection:**
-   - Creates TCP socket to target RAIDA server
-   - Sets receive timeout for reliable operation
-   - Establishes connection using configured server addresses
+   - Establishes TCP connection to specified RAIDA server
+   - Applies receive timeout for network reliability
+   - Handles connection failures gracefully
 
 2. **Protocol Communication:**
-   - Constructs properly formatted request packet
-   - Uses HEALING command group (2) and validate_ticket command (50)
-   - Includes challenge data with CRC32 validation
-   - Sends RAIDA number and ticket ID in request body
+   - Constructs validate_ticket command packet
+   - Includes challenge/response authentication
+   - Sends request with proper formatting and trailers
 
 3. **Response Processing:**
-   - Receives response header and validates status
-   - Processes response body containing coin list
-   - Converts network data to internal coin structures
-   - Allocates result array for coin data
+   - Receives and validates response header
+   - Extracts coin information from response body
+   - Parses coin list into structured format
+   - Stores results in thread argument structure
 
 4. **Error Handling:**
    - Handles network timeouts and connection failures
-   - Validates response packet structure and contents
-   - Provides graceful degradation for unreachable servers
-   - Proper resource cleanup on all code paths
+   - Validates response format and content
+   - Provides graceful degradation for failed servers
 
-**Network Protocol:**
-- **Standard RAIDA Protocol:** Uses established inter-server communication format
-- **Authentication:** Includes server identification and challenge validation
-- **Reliability:** Timeout handling for network resilience
-- **Data Validation:** CRC and size validation for received data
+**Threading Features:**
+- Parallel execution for multiple server contacts
+- Thread-safe result storage
+- Network timeout handling
+- Graceful failure recovery
 
-## Enhanced Ticket Management System
+## Data Structures and Formats
 
-### Fine-Grained Locking Architecture
-- **Per-Ticket Mutexes:** Each ticket has individual mutex for concurrent access
-- **Non-Blocking Allocation:** get_free_ticket_slot() uses trylock for performance
-- **Automatic Cleanup:** Expired tickets automatically freed by background process
-- **Resource Efficiency:** Eliminates global lock contention
+### Ticket Management
+- **Ticket Pool:** Fixed-size pool of ticket entries with per-slot locking
+- **Ticket Entry:** Contains creation time, unique ID, coin list, and claim tracking
+- **Claim Tracking:** Bitmap indicating which servers have claimed the ticket
+- **Ticket Timeout:** Automatic expiration after configured time period
 
-### Ticket Lifecycle Management
-1. **Allocation:** get_free_ticket_slot() returns locked, initialized ticket
-2. **Population:** Authenticated coins added to ticket structure
-3. **Usage:** Other RAIDA servers validate and claim ticket
-4. **Expiration:** Automatic cleanup after TICKET_RELEASE_SECONDS
-5. **Unlocking:** unlock_ticket_entry() releases ticket for other operations
+### Coin Record Formats
+- **Authentication Record:** 1 byte denomination + 4 bytes serial + 16 bytes authentication
+- **Discovery Record:** 1 byte denomination + 4 bytes serial + 16 bytes current AN + 16 bytes proposed AN
+- **Recovery Record:** 1 byte denomination + 4 bytes serial number
+- **Consensus Data:** 16-byte proposed guidance for authentication number generation
 
-### Concurrency Benefits
-- **Improved Throughput:** Multiple healing operations concurrent
-- **Reduced Latency:** No blocking on global ticket pool access
-- **Better Scalability:** Performance scales with number of tickets
-- **Deadlock Prevention:** Consistent locking order prevents deadlocks
+### Response Formats
+- **Ticket Response:** Authentication bitmap + ticket identifier
+- **Validation Response:** Coin list with denomination and serial number data
+- **Discovery Response:** Match type indicators for each coin
+- **Recovery Response:** Success/failure bitmap for coin recovery operations
 
-## concurrency model
- Concurrency Model
-Each distributed operation (like ticket validation) is processed in parallel using a thread pool or concurrent task model.
+### Network Communication
+- **Command Packets:** Standardized request format with headers and trailers
+- **Response Packets:** Standardized response format with status and data
+- **Threading Arguments:** Structure for passing data between threads
+- **Timeout Handling:** Configurable timeouts for network operations
 
-## Each worker thread:
-Communicates with one RAIDA server
-Waits for a response or times out
-Returns coin validation results
-
-## Ticket Locking:
-Each ticket has an associated exclusive lock.
-Threads must acquire the lock before modifying ticket contents.
-Locks must be released on all code paths, including error conditions.
-
-
-## Distributed Consensus Algorithm
-
-### Majority Voting System
-- **Threshold:** Majority consensus requires >50% of RAIDA servers (13+ out of 25)
-- **Fault Tolerance:** System tolerates up to 12 server failures
-- **Byzantine Resilience:** Majority voting provides Byzantine fault tolerance
-- **Deterministic Results:** Same inputs produce same consensus outcomes
-
-### Consensus Collection Process
-1. **Parallel Querying:** All 25 RAIDA servers queried simultaneously
-2. **Response Aggregation:** Successful responses counted for each coin
-3. **Threshold Application:** Coins with sufficient votes marked for repair
-4. **Atomic Repair:** All consensus-approved repairs applied atomically
-
-### Network Resilience
-- **Timeout Handling:** Individual server timeouts don't block operation
-- **Partial Results:** Operation succeeds with subset of responding servers
-- **Error Isolation:** Network errors isolated to individual server threads
-- **Graceful Degradation:** System continues operating with reduced server count
-
-## Security and Validation
+## Security Considerations
 
 ### Authentication Security
-- **Ownership Proof:** All healing operations require proof of coin ownership
-- **Consensus Validation:** Repairs only applied with sufficient consensus
-- **Server Authentication:** Inter-server communication includes challenge validation
-- **Ticket Security:** Tickets prevent unauthorized coin repair attempts
+- **Ticket-Based Authorization:** Tickets required for healing operations
+- **Consensus Verification:** Majority vote required for coin recovery
+- **Cryptographic Authentication:** Secure authentication number generation
+- **Time-Limited Access:** Tickets expire after configured timeout
 
 ### Data Integrity
-- **CRC Validation:** All network communications include integrity checking
-- **Atomic Operations:** Database updates are atomic and consistent
-- **Version Control:** MFS timestamps track all authentication number changes
-- **Audit Trail:** All healing operations logged for security monitoring
+- **Page Locking:** Database page locking ensures consistent coin state
+- **MFS Timestamps:** All coin changes timestamped for audit trail
+- **Dirty Page Tracking:** Modified data marked for reliable persistence
+- **Atomic Operations:** Recovery operations either succeed completely or fail entirely
 
-### Attack Prevention
-- **Consensus Requirements:** Prevents single-server manipulation
-- **Ticket Expiration:** Prevents stale ticket replay attacks
-- **Server Validation:** Only authorized RAIDA servers participate in consensus
-- **Rate Limiting:** Healing operations subject to appropriate rate controls
+### Network Security
+- **Server Identity Verification:** RAIDA server IDs validated
+- **Duplicate Claim Prevention:** Tickets can only be claimed once per server
+- **Timeout Protection:** Network operations bounded by timeouts
+- **Error Handling:** Graceful degradation for failed servers
 
-## Error Handling and Recovery
-## error codes
+## Error Handling and Validation
 
-| Symbolic Code                  | Meaning                                    | Code (Suggested Value) |
-| ------------------------------ | ------------------------------------------ | ---------------------- |
-| `ERROR_INVALID_PACKET_LENGTH`  | Input request size too small/malformed     | 0xE0                   |
-| `ERROR_MEMORY_ALLOC`           | Memory allocation failed                   | 0xE1                   |
-| `ERROR_COINS_NOT_DIV`          | Coin payload is not divisible as expected  | 0xE2                   |
-| `ERROR_NO_TICKET_SLOT`         | No available ticket slot                   | 0xE3                   |
-| `ERROR_NO_TICKET_FOUND`        | Ticket not found                           | 0xE4                   |
-| `ERROR_TICKET_CLAIMED_ALREADY` | Ticket already claimed by RAIDA            | 0xE5                   |
-| `ERROR_WRONG_RAIDA`            | RAIDA ID out of range                      | 0xE6                   |
+### Input Validation
+- **Size Validation:** All payloads validated for expected length
+- **Alignment Validation:** Coin data properly aligned to record boundaries
+- **Server ID Validation:** RAIDA server IDs within acceptable range
+- **Ticket Validation:** Ticket identifiers validated against active tickets
 
+### Error Conditions
+- `ERROR_INVALID_PACKET_LENGTH`: Incorrect payload size
+- `ERROR_COINS_NOT_DIV`: Coin data not properly aligned
+- `ERROR_WRONG_RAIDA`: Invalid RAIDA server ID
+- `ERROR_NO_TICKET_SLOT`: No available ticket slots
+- `ERROR_NO_TICKET_FOUND`: Ticket not found or expired
+- `ERROR_TICKET_CLAIMED_ALREADY`: Ticket already claimed by server
+- `ERROR_MEMORY_ALLOC`: Memory allocation failure
 
-### Network Error Handling
-- **Connection Failures:** Individual server failures don't prevent operation
-- **Timeout Management:** Appropriate timeouts 
+### Recovery Mechanisms
+- **Ticket Cleanup:** Expired tickets automatically released
+- **Resource Cleanup:** Memory and page locks released on error conditions
+- **Network Resilience:** Failed server connections handled gracefully
+- **State Consistency:** Failed operations leave coin state unchanged
+
+## Performance Characteristics
+
+### Ticket Management
+- **Fine-Grained Locking:** Per-slot mutexes for concurrent access
+- **Non-Blocking Access:** Trylock operations prevent blocking
+- **Automatic Cleanup:** Expired tickets released automatically
+- **Memory Pool:** Fixed-size pool prevents memory fragmentation
+
+### Network Operations
+- **Parallel Processing:** Multiple server contacts execute simultaneously
+- **Timeout Management:** Bounded execution time for network operations
+- **Connection Reuse:** Efficient TCP connection management
+- **Error Recovery:** Graceful handling of network failures
+
+### Consensus Operations
+- **Majority Voting:** Efficient consensus determination
+- **Batch Processing:** Multiple coins processed in single operations
+- **Cache Integration:** Efficient page access through on-demand cache
+- **Resource Management:** Proper cleanup ensures no resource leaks
+
+## Dependencies and Integration
+
+### Required Modules
+- **Database Layer:** On-demand page cache for coin data access
+- **Network Layer:** TCP connection management and communication
+- **Threading System:** Parallel thread execution for consensus operations
+- **Cryptographic Utilities:** Secure authentication number generation
+- **Configuration System:** Server identification and network parameters
+
+### External Constants Required
+- `TOTAL_RAIDA_SERVERS`: Total number of servers in network
+- `TICKET_POOL_SIZE`: Maximum number of concurrent tickets
+- `MAX_COINS_PER_TICKET`: Maximum coins per ticket
+- `TICKET_RELEASE_SECONDS`: Ticket expiration timeout
+- `RAIDA_SERVER_RCV_TIMEOUT`: Network receive timeout
+- `STATUS_*`: Operation result status codes
+- `ERROR_*`: Error condition definitions
+
+### Used By
+- **Client Applications:** Primary interface for coin recovery operations
+- **Network Services:** Inter-server communication for healing
+- **Administrative Tools:** Coin recovery and network maintenance
+- **Monitoring Systems:** Ticket usage and healing operation tracking
+
+## Threading and Concurrency
+- **Ticket Locking:** Per-slot mutexes for concurrent ticket access
+- **Page Locking:** Thread-safe access to coin data through database layer
+- **Network Threads:** Parallel execution for server communication
+- **Resource Safety:** Proper cleanup ensures no resource leaks
+
+## Network Protocol
+- **Command Format:** Standardized request/response protocol
+- **Challenge/Response:** Authentication mechanism for server communication
+- **Timeout Handling:** Configurable timeouts for network reliability
+- **Error Recovery:** Graceful handling of communication failures
+
+## Healing Process Flow
+1. **Ticket Acquisition:** Client obtains ticket for authentic coins
+2. **Distributed Validation:** Other servers validate ticket claims
+3. **Consensus Collection:** Parallel collection of server responses
+4. **Majority Determination:** Analysis of consensus for each coin
+5. **Recovery Execution:** Update authentication numbers based on consensus
+6. **Result Reporting:** Detailed results returned to client
+
+This healing command module provides essential recovery capabilities for the RAIDA network, enabling distributed consensus-based coin recovery while maintaining cryptographic security and network reliability.
