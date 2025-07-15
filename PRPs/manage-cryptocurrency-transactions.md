@@ -1,5 +1,5 @@
 
-# Crossover Transaction Management Implementation (crossover)
+# Crossover Transaction Management Implementation (crossover.c)
 
 ## Module Purpose
 This module implements a comprehensive indexing and management system for cryptocurrency crossover transactions between the RAIDA network and external blockchain systems. It provides transaction tracking, confirmation monitoring, exchange rate management, and automated cleanup with optimized background processing. The system handles the complete lifecycle of cross-blockchain value transfers with enhanced performance optimizations.

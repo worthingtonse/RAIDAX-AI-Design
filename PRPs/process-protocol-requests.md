@@ -126,7 +126,7 @@ This module implements the core RAIDA network protocol, providing request/respon
 
 3. **Encryption Setup:**
    - Extracts encryption type and parameters
-   - **AES Encryption:** Retrieves coin authentication number
+   - **AES Encryption:** Retrieves coin authentication number (Must use an AES-128-CTR)
    - **Locker Encryption:** Retrieves locker authentication number
    - **No Encryption:** Bypasses encryption setup
    - Validates encryption parameters and coin existence
@@ -445,7 +445,7 @@ This module implements the core RAIDA network protocol, providing request/respon
 
 ### 2. Encryption Support
 - **No Encryption:** Plain text communication
-- **AES Encryption:** Coin-based symmetric encryption
+- **AES Encryption:** Coin-based symmetric encryption (Must use an AES-128-CTR)
 - **Locker Encryption:** Locker-based symmetric encryption
 - **CTR Mode:** Counter mode for secure encryption
 

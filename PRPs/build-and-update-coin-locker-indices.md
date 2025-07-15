@@ -1,5 +1,4 @@
-
-# Locker Index Management Implementation (locker)
+# Locker Index Management Implementation (locker.c)
 
 ## Module Purpose
 This module implements an optimized indexing system for coin lockers and trade lockers in the RAIDA network. It provides fast lookup capabilities for coin collections stored in secure lockers, manages a marketplace for trading coin bundles, and implements incremental index updates for optimal performance. The system replaces expensive full index rebuilds with efficient incremental updates, significantly improving performance and scalability.
