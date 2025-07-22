@@ -1,359 +1,305 @@
-# RAIDA Protocol Header Definitions (protocol.h)
+# Protocol Definitions Header (protocol.h)
 
 ## Module Purpose
-This header defines the complete RAIDA network protocol specification, including data structures, constants, enumerations, and function interfaces for all protocol operations. It serves as the central specification for client-server communication, request/response handling, and network protocol compliance across the RAIDA network.
+This header file defines the complete RAIDA X protocol specification, including dual encryption support (128-bit and 256-bit AES), connection state management, error codes, command groups, ticket structures, and all data types required for secure client-server communication in the RAIDA network.
 
-## Core Protocol Constants
+## Protocol Constants
 
-### 1. Header Size Definitions
-**Constants:**
-- `REQUEST_HEADER_SIZE` (32 bytes): Fixed size for all request headers
-- `RESPONSE_HEADER_SIZE` (32 bytes): Fixed size for all response headers
-- `NONCE_SIZE` (12 bytes): Standard size for cryptographic nonces in CTR mode
+### Header and Message Sizes
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `REQUEST_HEADER_SIZE` | 48 | Maximum request header size (supports both 32-byte and 48-byte headers) |
+| `RESPONSE_HEADER_SIZE` | 48 | Response header size (adaptive based on request protocol version) |
+| `NONCE_SIZE` | 24 | Maximum nonce size for 256-bit AES protocol |
+| `MAX_BODY_SIZE` | Variable | Maximum allowed request body size for security |
 
-**Purpose:** Ensures consistent header formatting and parsing across all network operations
-**Usage:** All protocol processing functions use these constants for buffer allocation and parsing
+### Network Configuration
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `TOTAL_RAIDA_SERVERS` | 25 | Total number of RAIDA servers in the network |
+| `RAIDA_SERVER_RCV_TIMEOUT` | 32 | Timeout for inter-RAIDA server communication (seconds) |
 
-### 2. Network Configuration
-**Constants:**
-- `TOTAL_RAIDA_SERVERS` (25): Total number of RAIDA servers in the network
-- `RAIDA_SERVER_RCV_TIMEOUT` (32 seconds): Timeout for inter-server communication
+## Encryption Type Definitions
 
-**Purpose:** Defines network topology and communication parameters
-**Usage:** Used for consensus operations, healing, and inter-server communication
+### Protocol Encryption Types
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `ENCRYPTION_TYPE_NONE` | 0 | No encryption (reserved for future use) |
+| `ENCRYPTION_TYPE_AES` | 1 | Legacy 128-bit AES with single coin authentication |
+| `ENCRYPTION_TYPE_LOCKER` | 2 | Legacy 128-bit AES with locker-based authentication |
+| `ENCRYPTION_TYPE_AES_256_SINGLE_KEY` | 4 | Modern 256-bit AES with single coin key derivation |
+| `ENCRYPTION_TYPE_AES_256_DOUBLE_KEY` | 5 | Modern 256-bit AES with double coin key combination |
+
+### Protocol Version Characteristics
+| Version | Header Size | Nonce Size | Key Size | Body Challenge | Response Nonce |
+|---------|-------------|------------|----------|----------------|----------------|
+| Legacy (0-3) | 32 bytes | 12 bytes | 128-bit | 16-byte challenge | Client nonce reused |
+| Modern (4-5) | 48 bytes | 24 bytes | 256-bit | No challenge | Server-generated |
+
+## Connection State Management
+
+### Connection States
+| State | Description |
+|-------|-------------|
+| `STATE_WANT_READ_HEADER` | Connection waiting to read complete request header |
+| `STATE_WANT_READ_BODY` | Connection waiting to read request body data |
+| `STATE_PROCESSING` | Request being processed by worker thread |
+| `STATE_WANT_WRITE` | Connection ready to write response data |
+| `STATE_DONE` | Connection finished, ready for cleanup |
+
+### State Transition Flow
+```
+STATE_WANT_READ_HEADER → STATE_WANT_READ_BODY → STATE_PROCESSING → STATE_WANT_WRITE → STATE_DONE
+```
 
 ## Data Structure Definitions
 
-### 1. Basic Coin Structure (`coin_t`)
-**Purpose:** Fundamental coin identification structure used throughout the system
-**Fields:**
-- `denomination`: Coin denomination identifier (1 byte signed integer)
-- `sn`: Serial number (4 bytes unsigned integer)
+### Basic Coin Structure
+| Field | Type | Description |
+|-------|------|-------------|
+| `denomination` | 8-bit Integer | Coin denomination identifier |
+| `sn` | 32-bit Integer | Unique coin serial number |
 
-**Usage:** All coin-related operations and data structures
-**Scope:** Used across all modules for consistent coin identification
+### Connection Information Structure
+| Field | Type | Description |
+|-------|------|-------------|
+| `sa` | Socket Address Pointer | Client address (UDP only, NULL for TCP) |
+| `sk` | Integer | Socket file descriptor for connection |
+| `e0` | 8-bit Integer | Echo byte 0 from legacy protocol header |
+| `e1` | 8-bit Integer | Echo byte 1 from legacy protocol header |
+| `body_size` | Integer | Size of request body in bytes |
+| `body` | Byte Pointer | Dynamically allocated request body buffer |
+| `encryption_denomination` | 8-bit Integer | Coin denomination for encryption key |
+| `encryption_sn` | 32-bit Integer | Coin serial number for encryption key |
+| `encryption_type` | Integer | Protocol encryption type identifier |
+| `encryption_an` | Byte Array[16] | Authentication number for encryption (128-bit) |
+| `request_nonce` | Byte Array[24] | Client-provided nonce (size varies by protocol) |
+| `response_nonce` | Byte Array[24] | Server-generated response nonce |
+| `output_size` | Integer | Size of response data |
+| `output` | Byte Pointer | Response data buffer |
+| `command_status` | 8-bit Integer | Command execution result status |
+| `challenge_hash` | Byte Array[16] | Legacy challenge-response hash |
+| `start_time` | Timestamp | Request start time for performance measurement |
+| `cgroup` | 8-bit Integer | Command group identifier |
+| `command` | 8-bit Integer | Specific command identifier |
+| `shard_id` | 8-bit Integer | Shard identifier for request |
+| `ip` | String[16] | Client IP address for logging |
+| `exec_time` | Integer | Command execution time in microseconds |
+| `coin_id` | 8-bit Integer | Coin type identifier |
+| `state` | Connection State | Current connection state for non-blocking I/O |
+| `read_buf` | Byte Array | Buffer for reading request headers |
+| `bytes_to_read` | Integer | Expected bytes for current read operation |
+| `bytes_read` | Integer | Bytes actually read so far |
+| `write_buf` | Byte Pointer | Complete response buffer for writing |
+| `bytes_to_write` | Integer | Total bytes to write in response |
+| `bytes_written` | Integer | Bytes already written to socket |
 
-### 2. Connection State Enumeration (`connection_state_t`)
-**Purpose:** Tracks the current state of non-blocking network connections
-**Values:**
-- `STATE_WANT_READ_HEADER`: Waiting to read request header
-- `STATE_WANT_READ_BODY`: Waiting to read request body
-- `STATE_PROCESSING`: Request being processed by worker thread
-- `STATE_WANT_WRITE`: Ready to write response
-- `STATE_DONE`: Connection finished, ready to close
+## Error Code Definitions
 
-**Usage:** Network connection management and state tracking
-**Threading:** Enables proper coordination between network and worker threads
+### Protocol-Level Errors
+| Constant | Value | Description |
+|----------|--------|-------------|
+| `NO_ERROR` | 0 | Successful operation |
+| `ERROR_INVALID_CLOUD_ID` | 1 | Invalid cloud identifier |
+| `ERROR_INVALID_SPLIT_ID` | 2 | Invalid split identifier |
+| `ERROR_INVALID_RAIDA_ID` | 3 | Wrong RAIDA server identifier |
+| `ERROR_INVALID_SHARD_ID` | 4 | Invalid shard identifier |
+| `ERROR_INVALID_COMMAND_GROUP` | 5 | Unknown command group |
+| `ERROR_INVALID_COMMAND` | 6 | Unknown command in group |
+| `ERROR_INVALID_COIN_ID` | 7 | Wrong coin type identifier |
+| `ERROR_INVALID_UDP_FRAME_COUNT` | 15 | Invalid UDP frame count |
+| `ERROR_INVALID_PACKET_LENGTH` | 16 | Incorrect packet size |
+| `ERROR_UDP_FRAME_TIMEOUT` | 17 | UDP frame reception timeout |
+| `ERROR_WRONG_RAIDA` | 18 | Request sent to wrong RAIDA server |
+| `ERROR_SHARD_NOT_AVAILABLE` | 20 | Requested shard not available |
+| `ERROR_ENCRYPTION_COIN_NOT_FOUND` | 25 | Encryption key coin not found |
+| `ERROR_INVALID_ENCRYPTION_CODE` | 27 | Invalid encryption code |
+| `ERROR_INVALID_EOF` | 33 | Invalid end-of-frame trailer |
+| `ERROR_INVALID_ENCRYPTION` | 34 | Invalid encryption type |
+| `ERROR_EMPTY_REQUEST` | 36 | Empty request received |
+| `ERROR_INVALID_CRC` | 37 | Challenge CRC validation failed |
+| `ERROR_ADMIN_AUTH` | 38 | Administrative authentication failed |
 
-### 3. Connection Information Structure (`conn_info_t`)
-**Purpose:** Complete context for client connection and request processing
-**Fields:**
-- **Network Information:**
-  - `sa`: Client socket address pointer (UDP only)
-  - `sk`: Client socket descriptor
-  - `ip`: Client IP address string (16 bytes)
-  - `state`: Current connection state
-  - `bytes_to_read/read`: Non-blocking read state
-  - `bytes_to_write/written`: Non-blocking write state
+### Coin and Database Errors
+| Constant | Value | Description |
+|----------|--------|-------------|
+| `ERROR_COINS_NOT_DIV` | 39 | Coin data size not properly divisible |
+| `ERROR_INVALID_SN_OR_DENOMINATION` | 40 | Invalid serial number or denomination |
+| `ERROR_PAGE_IS_NOT_RESERVED` | 41 | Required page not reserved by session |
+| `ERROR_TOO_MANY_COINS` | 45 | Too many coins in single operation |
+| `ERROR_INVALID_SHARD` | 46 | Invalid shard identifier |
+| `ERROR_DELETE_COINS` | 47 | Coin deletion operation failed |
+| `ERROR_LEGACY_DB` | 48 | Legacy database operation error |
 
-- **Request Data:**
-  - `body_size`: Size of request body
-  - `body`: Request body data pointer
-  - `e0`, `e1`: Echo bytes for response
-  - `cgroup`: Command group identifier
-  - `command`: Command number within group
-  - `shard_id`: Target shard identifier
-  - `coin_id`: Coin ID for validation
+### Ticket Management Errors
+| Constant | Value | Description |
+|----------|--------|-------------|
+| `ERROR_NO_TICKET_SLOT` | 42 | No available ticket slots |
+| `ERROR_NO_TICKET_FOUND` | 43 | Specified ticket not found |
+| `ERROR_TICKET_CLAIMED_ALREADY` | 44 | Ticket already claimed by RAIDA |
 
-- **Encryption Context:**
-  - `encryption_type`: Type of encryption used
-  - `encryption_denomination`: Coin denomination for encryption
-  - `encryption_sn`: Coin serial number for encryption
-  - `encryption_an`: Authentication number for encryption (16 bytes)
-  - `request_nonce`: Nonce from client request (12 bytes)
-  - `response_nonce`: Nonce for server response (12 bytes)
+### System and Resource Errors
+| Constant | Value | Description |
+|----------|--------|-------------|
+| `ERROR_NOT_IMPLEMENTED` | 89 | Operation not yet implemented |
+| `ERROR_MEMORY_ALLOC` | 254 | Memory allocation failure |
+| `ERROR_NETWORK` | 253 | Network communication error |
+| `ERROR_INTERNAL` | 252 | Internal server error |
+| `ERROR_INVALID_ROUTING` | 255 | Invalid routing information |
 
-- **Response Data:**
-  - `output_size`: Size of response body
-  - `output`: Response body data pointer
-  - `command_status`: Command execution status
-  - `challenge_hash`: Challenge data for authentication (16 bytes)
+## Status Code Definitions
 
-- **Timing and Statistics:**
-  - `start_time`: Request start timestamp
-  - `exec_time`: Command execution time
-  - `read_buf`: Buffer for reading headers (32 bytes)
-  - `write_buf`: Buffer for writing responses
+### Success Status Codes
+| Constant | Value | Description |
+|----------|--------|-------------|
+| `STATUS_SUCCESS` | 250 | General success status |
+| `STATUS_ALL_PASS` | 241 | All items in operation passed |
+| `STATUS_ALL_FAIL` | 242 | All items in operation failed |
+| `STATUS_MIXED` | 243 | Some items passed, others failed |
 
-**Usage:** Passed to all command handlers and protocol functions
-**Lifecycle:** Created for each request, maintained throughout processing
+### Find Command Status Codes
+| Constant | Value | Description |
+|----------|--------|-------------|
+| `STATUS_FIND_NEITHER` | 208 | No coins found with either authentication number |
+| `STATUS_FIND_ALL_AN` | 209 | All coins found with current authentication numbers |
+| `STATUS_FIND_ALL_PAN` | 210 | All coins found with proposed authentication numbers |
+| `STATUS_FIND_MIXED` | 211 | Mixed results for coin authentication status |
 
-## Protocol Enumerations
+## Command Group Definitions
 
-### 1. Encryption Types
-**Purpose:** Defines supported encryption methods for secure communication
-**Values:**
-- `ENCRYPTION_TYPE_NONE` (0): No encryption, plain text communication
-- `ENCRYPTION_TYPE_AES` (1): AES encryption using coin authentication number
-- `ENCRYPTION_TYPE_LOCKER` (2): AES encryption using locker authentication number
+### Primary Command Groups
+| Constant | Value | Description |
+|----------|--------|-------------|
+| `NO_COMMAND_GROUP` | 0 | Status and information commands |
+| `AUTH` | 1 | Authentication and ownership commands |
+| `HEALING` | 2 | Network healing and recovery commands |
+| `ADMIN` | 3 | Administrative and executive commands |
+| `KEY_EXCHANGE` | 4 | Key exchange and management commands |
+| `BANKING` | 5 | Banking and financial operations |
+| `CHAT` | 6 | Communication and messaging |
+| `BLOCKCHAIN` | 7 | Blockchain integration commands |
+| `LOCKER` | 8 | Locker storage and retrieval commands |
+| `CHANGE` | 9 | Change-making and denomination conversion |
+| `SHARD` | 10 | Shard switching and migration commands |
+| `CROSSOVER` | 11 | Cross-platform integration commands |
+| `RPC` | 12 | Remote procedure call commands |
+| `FILESYSTEM` | 13 | File system and object storage commands |
+| `INTEGRITY` | 14 | Merkle tree integrity commands |
 
-**Usage:** Request header encryption type field
-**Security:** Determines encryption/decryption methods for request/response bodies
+### Command Group Limits
+| Constant | Value | Description |
+|----------|--------|-------------|
+| `MAX_COMMAND_GROUP` | 14 | Maximum valid command group identifier |
+| `MAX_COMMAND` | 255 | Maximum valid command identifier within group |
 
-### 2. Status Code Enumeration
-**Purpose:** Comprehensive error and success codes for all protocol operations
-**Categories:**
+## Shard Definitions
 
-**Success Codes:**
-- `NO_ERROR` (0): Operation completed successfully
-- `STATUS_SUCCESS` (250): General success indicator
-- `STATUS_ALL_PASS` (241): All items in batch succeeded
-- `STATUS_ALL_FAIL` (242): All items in batch failed
-- `STATUS_MIXED` (243): Mixed success/failure in batch
+### Shard Types
+| Constant | Value | Description |
+|----------|--------|-------------|
+| `SHARD_UNKNOWN` | 0 | Unknown or unspecified shard |
+| `SHARD_CLOUDCOIN` | 1 | Legacy CloudCoin v1 shard |
+| `SHARD_SUPERCOIN` | 2 | CloudCoin v2 (SuperCoin) shard |
+| `SHARD_NEW` | 3 | Current RAIDA system shard |
 
-**Protocol Errors:**
-- `ERROR_INVALID_CLOUD_ID` (1): Invalid cloud identifier
-- `ERROR_INVALID_SPLIT_ID` (2): Invalid split identifier
-- `ERROR_INVALID_RAIDA_ID` (3): Invalid RAIDA server identifier
-- `ERROR_INVALID_SHARD_ID` (4): Invalid shard identifier
-- `ERROR_INVALID_COMMAND_GROUP` (5): Invalid command group
-- `ERROR_INVALID_COMMAND` (6): Invalid command number
-- `ERROR_INVALID_COIN_ID` (7): Invalid coin identifier
-- `ERROR_INVALID_PACKET_LENGTH` (16): Incorrect packet size
-- `ERROR_INVALID_EOF` (33): Invalid end-of-frame marker
-- `ERROR_INVALID_CRC` (37): CRC checksum mismatch
-
-**Authentication Errors:**
-- `ERROR_ADMIN_AUTH` (38): Invalid admin authentication
-- `ERROR_INVALID_ENCRYPTION` (34): Invalid encryption parameters
-- `ERROR_INVALID_SN_OR_DENOMINATION` (40): Invalid coin reference
-
-**Operation Errors:**
-- `ERROR_MEMORY_ALLOC` (254): Memory allocation failure
-- `ERROR_INTERNAL` (252): Internal processing error
-- `ERROR_NETWORK` (253): Network communication error
-- `ERROR_NOT_IMPLEMENTED` (89): Feature not implemented
-
-**Healing-Specific Codes:**
-- `ERROR_NO_TICKET_SLOT` (42): No ticket slots available
-- `ERROR_NO_TICKET_FOUND` (43): Ticket not found
-- `ERROR_TICKET_CLAIMED_ALREADY` (44): Ticket already claimed
-- `STATUS_FIND_ALL_AN` (209): All coins found with current AN
-- `STATUS_FIND_ALL_PAN` (210): All coins found with proposed AN
-- `STATUS_FIND_NEITHER` (208): No coins found with either AN
-- `STATUS_FIND_MIXED` (211): Mixed results for find operation
-
-**Usage:** All command handlers return these codes to indicate operation results
-**Client Communication:** Enables detailed error reporting to clients
-
-### 3. Command Group Enumeration
-**Purpose:** Organizes commands into logical functional groups
-**Values:**
-- `NO_COMMAND_GROUP` (0): Default/status operations
-- `AUTH` (1): Authentication and ownership operations
-- `HEALING` (2): Recovery and healing operations
-- `ADMIN` (3): Administrative operations
-- `KEY_EXCHANGE` (4): Cryptographic key operations
-- `BANKING` (5): Banking and financial operations
-- `CHAT` (6): Chat and messaging operations
-- `BLOCKCHAIN` (7): Blockchain operations
-- `LOCKER` (8): Coin storage and trading operations
-- `CHANGE` (9): Denomination conversion operations
-- `SHARD` (10): Cross-shard operations
-- `CROSSOVER` (11): External system integration
-- `RPC` (12): Remote procedure calls
-- `FILESYSTEM` (13): Distributed file operations
-
-**Usage:** Request header command group field
-**Validation:** Used for command validation and dispatch
-
-### 4. Shard Enumeration
-**Purpose:** Identifies different coin system shards
-**Values:**
-- `SHARD_UNKNOWN` (0): Unknown or invalid shard
-- `SHARD_CLOUDCOIN` (1): CloudCoin v1 legacy system
-- `SHARD_SUPERCOIN` (2): CloudCoin v2/SuperCoin system
-- `SHARD_NEW` (3): Current RAIDA system
-- `MAX_SHARD`: Maximum valid shard identifier
-
-**Usage:** Cross-shard operations and legacy system integration
-**Validation:** Used for shard validation and routing
-
-## Function Interface Definitions
-
-### 1. Protocol Validation Functions
-**Functions:**
-- `validate_header`: Validates and processes request headers
-  - **Parameters:** Header buffer, connection info structure
-  - **Returns:** Integer error code
-  - **Purpose:** Comprehensive header validation and context setup
-
-- `validate_decrypt_body`: Validates and decrypts request bodies
-  - **Parameters:** Connection info structure
-  - **Returns:** Integer error code
-  - **Purpose:** Body validation, decryption, and integrity checking
-
-**Usage:** Called by protocol processing for all incoming requests
-**Security:** Ensures all requests are properly validated before processing
-
-### 2. Response Generation Functions
-**Functions:**
-- `get_response_header`: Generates response headers
-  - **Parameters:** Response buffer, status code, command group, connection info
-  - **Returns:** None
-  - **Purpose:** Creates properly formatted response headers
-
-- `prepare_response`: Prepares complete response for transmission
-  - **Parameters:** Connection info structure
-  - **Returns:** None
-  - **Purpose:** Assembles complete response with encryption
-
-**Usage:** Called by all command handlers for response generation
-**Protocol:** Ensures consistent response formatting
-
-### 3. Command Processing Functions
-**Functions:**
-- `run_command`: Executes validated commands in thread pool
-  - **Parameters:** Thread argument with connection info
-  - **Returns:** None
-  - **Purpose:** Thread-safe command execution
-
-- `send_command_error`: Sends error responses
-  - **Parameters:** Error code, connection info structure
-  - **Returns:** None
-  - **Purpose:** Consistent error response handling
-
-- `finish_command`: Completes command processing
-  - **Parameters:** Connection info structure
-  - **Returns:** None
-  - **Purpose:** Connection cleanup and resource management
-
-**Usage:** Core command processing pipeline
-**Threading:** Designed for thread pool execution
-
-### 4. Utility Functions
-**Functions:**
-- `get_body_payload`: Extracts payload from request body
-  - **Parameters:** Connection info structure
-  - **Returns:** Payload data pointer
-  - **Purpose:** Skips challenge data to access command payload
-
-- `write_stat`: Writes operation statistics
-  - **Parameters:** Connection info structure
-  - **Returns:** None
-  - **Purpose:** Records operation metrics and timing
-
-**Usage:** Helper functions for command processing
-**Utility:** Provides common functionality across commands
+### Shard Limits
+| Constant | Value | Description |
+|----------|--------|-------------|
+| `MAX_SHARD` | 3 | Maximum valid shard identifier |
 
 ## Ticket System Definitions
 
-### 1. Ticket Constants
-**Constants:**
-- `TICKET_POOL_SIZE` (512): Maximum number of concurrent tickets
-- `MAX_COINS_PER_TICKET` (4096): Maximum coins per ticket
-- `TICKET_RELEASE_SECONDS` (300): Ticket expiration timeout
+### Ticket Configuration
+| Constant | Value | Description |
+|----------|--------|-------------|
+| `TICKET_POOL_SIZE` | 512 | Maximum number of concurrent tickets |
+| `MAX_COINS_PER_TICKET` | 4096 | Maximum coins that can be included in single ticket |
+| `TICKET_RELEASE_SECONDS` | 300 | Automatic ticket expiration time in seconds |
 
-**Purpose:** Configures ticket system for healing operations
-**Performance:** Balances memory usage with operational capacity
+### Ticket Entry Structure
+| Field | Type | Description |
+|-------|------|-------------|
+| `created_at` | Timestamp | Ticket creation time for expiration tracking |
+| `ticket` | 32-bit Integer | Unique ticket identifier |
+| `coins` | Coin Array | Array of coins included in ticket |
+| `claims` | Byte Array[25] | Bitmap of RAIDA servers that have claimed ticket |
+| `num_coins` | 32-bit Integer | Number of coins stored in ticket |
+| `mtx` | Mutex | Thread safety lock for ticket operations |
 
-### 2. Ticket Entry Structure (`ticket_entry_t`)
-**Purpose:** Represents a single ticket in the healing system
-**Fields:**
-- `created_at`: Ticket creation timestamp
-- `ticket`: Unique ticket identifier (4 bytes)
-- `coins`: Array of coins associated with ticket
-- `claims`: Bitmap of server claims (25 bytes)
-- `num_coins`: Number of coins in ticket
-- `mtx`: Per-slot mutex for thread safety
+## Function Type Definitions
 
-**Usage:** Healing operations and inter-server communication
-**Concurrency:** Per-ticket locking for high performance
+### Command Handler Type
+```
+typedef void(command_handler_t)(conn_info_t *ci);
+```
 
-### 3. Ticket Management Functions
-**Functions:**
-- `init_ticket_storage`: Initializes ticket memory pool
-- `check_tickets`: Checks for and releases expired tickets
-- `get_free_ticket_slot`: Allocates free ticket slot
-- `get_ticket_entry`: Retrieves ticket by identifier
-- `unlock_ticket_entry`: Releases ticket lock
+### Function Declarations
+| Function | Purpose |
+|----------|---------|
+| `validate_header` | Validates and parses request headers |
+| `validate_decrypt_body` | Validates and decrypts request bodies |
+| `send_command_error` | Sends error response to client |
+| `get_response_header` | Generates response headers |
+| `run_command` | Main command execution entry point |
+| `prepare_response` | Prepares complete response for transmission |
+| `finish_command` | Completes command processing and cleanup |
+| `get_body_payload` | Returns pointer to command payload data |
+| `check_tickets` | Background ticket expiration management |
+| `init_ticket_storage` | Initializes ticket management system |
+| `get_free_ticket_slot` | Allocates new ticket from pool |
+| `get_ticket_entry` | Retrieves existing ticket by identifier |
+| `unlock_ticket_entry` | Releases ticket lock after use |
+| `write_stat` | Records performance and operation statistics |
 
-**Usage:** Healing operations and ticket lifecycle management
-**Thread Safety:** All functions are thread-safe with proper locking
+## Protocol Version Compatibility
 
-## Command Handler Interface
+### Legacy Protocol Support (Types 0-3)
+- **Full Backward Compatibility:** Complete support for existing clients
+- **32-byte Headers:** Fixed header size for legacy protocols
+- **Challenge-Response:** Includes replay protection mechanism
+- **128-bit Security:** AES-128 encryption with coin-based keys
 
-### 1. Command Handler Type
-**Type:** `command_handler_t`
-**Signature:** Function pointer taking connection info structure
-**Purpose:** Standard interface for all command processing functions
-**Usage:** All command handlers must conform to this interface
+### Modern Protocol Support (Types 4-5)
+- **Enhanced Security:** 256-bit AES encryption with hardware acceleration
+- **48-byte Headers:** Extended headers for additional security data
+- **Server Nonces:** Server-controlled nonces for enhanced security
+- **Key Derivation:** Secure key derivation for enhanced encryption
 
-### 2. Command Dispatch
-**Mechanism:** Two-dimensional function pointer array
-**Indexing:** Command group and command number
-**Validation:** Null pointer check before dispatch
-**Error Handling:** Invalid commands generate appropriate errors
+### Protocol Detection
+- **Automatic Detection:** Protocol version determined from encryption type field
+- **Transparent Operation:** Command processing independent of protocol version
+- **Seamless Migration:** Clients can upgrade without server changes
 
-## Protocol Configuration
+## Security Features
 
-### 1. Size Limits
-**Constants:**
-- `MAX_COMMAND_GROUP`: Maximum command group number
-- `MAX_COMMAND`: Maximum command number (255)
-- Header and body size limits
-- Buffer size requirements
+### Authentication Mechanisms
+- **Coin-Based Keys:** Encryption keys derived from coin ownership
+- **Challenge-Response:** Legacy protocols include replay protection
+- **Nonce Management:** Modern protocols use server-controlled nonces
+- **Administrative Keys:** Separate authentication for administrative operations
 
-**Purpose:** Defines protocol limits and constraints
-**Validation:** Used for input validation and buffer allocation
+### Encryption Security
+- **Dual Algorithm Support:** Both AES-128 and AES-256 supported
+- **Hardware Acceleration:** Intel AES-NI support for performance
+- **Key Derivation:** Secure hash-based key derivation for 256-bit keys
+- **Protocol Isolation:** Different encryption types properly isolated
 
-### 2. Timeout Values
-**Constants:**
-- Inter-server communication timeouts
-- Ticket expiration timeouts
-- Network operation timeouts
-- Connection timeouts
+### Network Security
+- **Timeout Management:** Configurable timeouts prevent resource holding
+- **Size Limits:** All message sizes bounded for security
+- **Validation Depth:** Comprehensive validation at all protocol layers
 
-**Purpose:** Configures timing for various operations
-**Reliability:** Ensures operations complete within reasonable time
+## Threading and Concurrency
 
-## Security Considerations
+### Thread Safety Requirements
+- **Connection Isolation:** Each connection processed independently
+- **Ticket Synchronization:** Thread-safe ticket management with fine-grained locking
+- **State Machine Safety:** Connection state transitions are atomic
+- **Resource Protection:** All shared resources properly synchronized
 
-### 1. Encryption Parameters
-- Nonce size for CTR mode security
-- Authentication number size (16 bytes)
-- Challenge/response size (16 bytes)
-- Encryption type validation
+### Concurrency Design
+- **Stateless Processing:** Protocol operations designed to be stateless
+- **Independent Operations:** Different connections processed independently
+- **Lock-Free Design:** Minimal locking required for protocol operations
 
-### 2. Validation Requirements
-- All inputs must be validated before processing
-- Proper error codes for all validation failures
-- Resource cleanup on all error paths
-- Secure error handling without information leakage
-
-### 3. Thread Safety
-- All protocol functions must be thread-safe
-- Proper locking for shared resources
-- Atomic operations where required
-- Resource cleanup in multithreaded environment
-
-## request header
-
-| Byte Offset | Field                    | Size | Description                                                        |
-| ----------- | ------------------------ | ---- | ------------------------------------------------------------------ |
-| 0           | Router version           | 1    | Must be 1                                                          |
-| 1           | Split ID                 | 1    | For future use (always 0 for now)                                  |
-| 2           | RAIDA ID                 | 1    | Must match the RAIDA server receiving the request                  |
-| 3           | Shard ID                 | 1    | Used to select blockchain shard                                    |
-| 4           | Command group            | 1    | e.g., AUTH, ADMIN, LOCKER, etc.                                    |
-| 5           | Command index            | 1    | Specific command in that group                                     |
-| 6–7         | Coin ID                  | 2    | 16-bit big-endian identifier (coin type)                           |
-| 8–15        | Reserved                 | 8    | Currently unused, may be filled with 0                             |
-| 16          | Encryption type          | 1    | 0 = None, 1 = AES, 2 = Locker-based                                |
-| 17          | Encryption denomination  | 1    | If encryption is used                                              |
-| 18–21       | Encryption serial number | 4    | 32-bit serial for encryption key selection                         |
-| 22–23       | Body size                | 2    | How many bytes follow after the header (big-endian)                |
-| 20–31       | Request nonce            | 12   | Used in CTR encryption mode for security                           |
-| 30–31       | Echo bytes               | 2    | Echoed back by the server in the response (like a transaction tag) |
-
-This protocol header provides the complete specification for RAIDA network communication, ensuring consistent, secure, and reliable operation across all network nodes.
+This protocol header provides the complete specification for secure, efficient, and backward-compatible communication in the RAIDA network, supporting both legacy and modern clients while enabling enhanced security features and maintaining optimal performance across all supported protocol versions.

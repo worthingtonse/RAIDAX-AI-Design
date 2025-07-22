@@ -1,356 +1,395 @@
-# Shard Command Handlers (cmd_shards.c)
+# Shard Command Handlers (cmd_shards)
 
 ## Module Purpose
-This module implements shard management operations for the RAIDA network, enabling seamless transitions between different coin systems (CloudCoin v1, CloudCoin v2/SuperCoin, and current RAIDA system). It provides functionality for moving coins between shards, converting legacy coins to current system, and managing cross-shard operations while maintaining value conservation and cryptographic security.
+This module implements shard-based coin management commands for the RAIDA network, enabling secure migration of coins between different shards (CloudCoin, SuperCoin, and the current RAIDA system). It provides comprehensive coin switching operations, value verification, dual hashing support, and integrates with legacy systems while maintaining monetary conservation across all operations.
+
+## Constants and Configuration
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `MAX_AVAILABLE_COINS` | 1024 | Maximum number of coins returned per denomination in availability queries |
+| `SHARD_CLOUDCOIN` | 1 | Legacy CloudCoin v1 shard identifier |
+| `SHARD_SUPERCOIN` | 2 | CloudCoin v2 (SuperCoin) shard identifier |
+| `MAX_SHARD` | Variable | Maximum valid shard identifier |
+
+## Error Codes
+| Constant | Description |
+|----------|-------------|
+| `ERROR_INVALID_PACKET_LENGTH` | Request payload size is incorrect for the operation |
+| `ERROR_INVALID_PARAMETER` | Invalid operation type or parameter provided |
+| `ERROR_INVALID_SHARD` | Invalid shard identifier specified |
+| `ERROR_INVALID_SHARD_ID` | Shard ID is not supported or recognized |
+| `ERROR_INVALID_SN_OR_DENOMINATION` | Invalid coin serial number or denomination |
+| `ERROR_PAGE_IS_NOT_RESERVED` | Required page is not reserved by the requesting session |
+| `ERROR_AMOUNT_MISMATCH` | Total value of input coins does not match output coins |
+| `ERROR_BAD_COINS` | Input coins failed validation in legacy systems |
+| `ERROR_NOT_IMPLEMENTED` | Operation is not yet implemented |
+| `ERROR_COINS_NOT_DIV` | Coin data size not properly divisible by record size |
+
+## Status Codes
+| Constant | Description |
+|----------|-------------|
+| `STATUS_SUCCESS` | Operation completed successfully |
 
 ## Core Functionality
 
-### 1. Shard Switch Rollback (`cmd_rollback_switch_shard`)
+### 1. Rollback Switch Shard (`cmd_rollback_switch_shard`)
 **Parameters:**
-- Connection information structure containing request data
+- Connection information structure
 
-**Returns:** None (modifies connection structure with error status)
+**Returns:** None (returns not implemented status)
 
-**Purpose:** Provides rollback capability for failed shard switching operations, allowing clients to recover from incomplete transactions.
+**Purpose:** Placeholder for rollback functionality to reverse failed shard switching operations. Currently not implemented but reserved for future transaction rollback capabilities.
 
 **Process:**
-1. **Stub Implementation:**
-   - Currently returns NOT_IMPLEMENTED error
-   - Reserved for future rollback functionality
-   - Placeholder for transaction rollback logic
+1. **Status Return:**
+   - Returns ERROR_NOT_IMPLEMENTED status
+   - Placeholder for future rollback functionality
+   - Maintains API compatibility for future implementation
 
-**Input Format:**
-- Not yet implemented
+**Used By:** Future transaction rollback systems
 
-**Output Format:**
-- Error status indicating not implemented
-
-
-### 2. Available Serial Numbers for Shards (`cmd_get_sns`)
+### 2. Get Serial Numbers (`cmd_get_sns`)
 **Parameters:**
 - Connection information structure containing request data
-- Input: 39-byte payload with session ID, operation type, and denomination requests
+- Input: 39-byte payload (session ID + operation type + denomination selection)
 
 **Returns:** None (modifies connection structure with available serial numbers and ranges)
 
-**Purpose:** Retrieves available serial numbers for shard operations, providing both individual serial numbers and contiguous ranges for efficient coin allocation during shard transitions.
+**Purpose:** Retrieves available coin serial numbers for shard switching operations, providing optimized range and individual serial number information for efficient bulk operations.
 
 **Process:**
 1. **Request Validation:**
-   - Validates exact payload size (39 bytes)
-   - Extracts session ID (4 bytes) and operation type (1 byte)
-   - Validates operation type (must be 3 or 4 for shard operations)
-   - Extracts denomination request bitmap (16 bytes)
+   - Validates exact 39-byte payload size
+   - Extracts session ID and operation type
+   - Validates operation type (must be 3 or 4)
+   - Extracts denomination selection bitmap
 
 2. **Denomination Processing:**
-   - Iterates through all possible denominations based on request bitmap
-   - For each requested denomination, scans all pages for available coins
-   - Processes pages sequentially without reservation (different from executive commands)
-   - Identifies available coin slots based on MFS values
+   - Iterates through requested denominations from bitmap
+   - For each denomination:
+     - Scans all pages using on-demand cache
+     - Identifies available coins (MFS = 0)
+     - Groups contiguous serial numbers into ranges
+     - Collects individual serial numbers
 
 3. **Range Optimization:**
-   - Identifies contiguous ranges of available serial numbers
+   - Converts contiguous available coins into start/end ranges
    - Separates individual serial numbers from ranges
-   - Optimizes response format for efficient client processing
-   - Limits total coins returned to prevent oversized responses
+   - Limits total results to MAX_AVAILABLE_COINS per denomination
+   - Optimizes response size through range compression
 
 4. **Response Generation:**
    - For each denomination with available coins:
-     - Includes denomination identifier
-     - Lists range count and individual serial number count
-     - Provides range start/end pairs
-     - Includes individual serial numbers
+     - Denomination identifier (1 byte)
+     - Number of ranges (1 byte)  
+     - Number of individual serial numbers (1 byte)
+     - Range data (start/end pairs, 8 bytes each)
+     - Individual serial numbers (4 bytes each)
 
-**Shard-Specific Features:**
-- No page reservation required for shard operations
-- Support for multiple denomination selection
-- Optimized for large-scale shard transitions
-- Efficient range-based response format
+**Used By:** Shard preparation workflows, bulk coin allocation
 
-**Input Format:**
-- 4 bytes: Session ID
-- 1 byte: Operation type (3 or 4)
-- 16 bytes: Denomination request bitmap
-- 18 bytes: Reserved/padding
+**Dependencies:** Database layer for page access
 
-**Output Format:**
-Per denomination:
-- 1 byte: Denomination identifier
-- 1 byte: Range count
-- 1 byte: Individual serial number count
-- Variable: Range pairs (8 bytes each: 4 bytes start + 4 bytes end)
-- Variable: Individual serial numbers (4 bytes each)
-
-**Dependencies:**
-- Database layer for on-demand page access
-- Range optimization algorithms
-
-### 3. Shard Switching with Serial Numbers (`cmd_switch_shard_sum_with_sns`)
+### 3. Switch Shard Sum with Serial Numbers (`cmd_switch_shard_sum_with_sns`)
 **Parameters:**
-- Connection information structure containing request data
-- Input: Variable-length payload (minimum 50 bytes) with coin conversion data
+- Connection information structure
+- Input: Variable-length payload (minimum 50 bytes) with shard data, coin lists, and authentication
 
-**Returns:** None (modifies connection structure with conversion results)
+**Returns:** None (modifies connection structure with operation result)
 
-**Purpose:** Converts coins from legacy shard systems to current RAIDA system, ensuring value conservation and proper authentication number generation.
+**Purpose:** Performs atomic shard switching by destroying coins in legacy shards and creating equivalent value coins in the current RAIDA system with complete value verification and dual hashing support.
 
 **Process:**
 1. **Request Validation:**
-   - Validates minimum payload size (50 bytes)
-   - Extracts session ID, shard ID, and coin counts
-   - Validates shard ID within acceptable range
-   - Extracts shard methodology and coin lists
+   - Validates minimum 50-byte payload size
+   - Extracts session ID, target shard ID, and coin data
+   - Validates shard ID within acceptable range (≤ MAX_SHARD)
 
-2. **Value Conservation Verification:**
-   - Calculates total value of coins to be deleted from legacy shard
-   - Calculates total value of coins to be created in current system
-   - Ensures value conservation across shard transition
-   - Validates conversion ratios based on shard type
+2. **Payload Parsing:**
+   - Extracts legacy coin count and data
+   - Parses new coin specifications
+   - Extracts PANG (authentication data) for new coins
+   - Validates data structure alignment
 
-3. **Legacy Coin Processing:**
-   - **CloudCoin v1 (SHARD_CLOUDCOIN):**
-     - Uses legacy_calc_total to calculate total value
-     - Validates 1:1 value conversion ratio
-     - Uses legacy_detect for test mode or legacy_delete for execution
-   - **SuperCoin (SHARD_SUPERCOIN):**
-     - Uses fixed conversion rate (85.125 per coin)
-     - Validates conversion ratio against total value
-     - Uses cc2_detect for test mode or cc2_delete for execution
+3. **Value Verification:**
+   - Calculates total value of legacy coins being destroyed
+   - Calculates total value of new coins being created
+   - Ensures value conservation (input value = output value)
+   - Rejects operation if values don't match
 
-4. **New Coin Creation:**
-   - For each new coin in current system:
-     - Retrieves coin page using denomination and serial number
-     - Generates new authentication number using cryptographic hash
-     - Updates coin record with new authentication number
-     - Sets MFS timestamp to current month
-     - Marks database page as dirty for persistence
-     - Updates statistics for successful conversions
+4. **Legacy Shard Processing:**
+   - **SHARD_CLOUDCOIN:** 
+     - Uses legacy calculation for total value
+     - Calls legacy_detect for test mode or legacy_delete for execution
+   - **SHARD_SUPERCOIN:**
+     - Uses fixed SuperCoin value calculation (85.125 per coin)
+     - Calls cc2_detect for test mode or cc2_delete for execution
 
-5. **Test Mode Support:**
-   - Session ID of 0 enables test mode
-   - Test mode validates conversion without making changes
-   - Allows verification of conversion parameters
-   - Provides safe validation of large operations
+5. **New Coin Creation with Dual Hash Support:**
+   - For each new coin specification:
+     - Retrieves target page using on-demand cache
+     - Validates page is available for new coin creation
+     - Constructs hash input from PANG authentication data
+     - **Legacy Clients (encryption_type < 4):** Uses MD5 hash for authentication number generation
+     - **Modern Clients (encryption_type >= 4):** Uses SHA-256 hash for authentication number generation
+     - Sets MFS timestamp and marks page as dirty
+     - Updates statistics for ownership and value tracking
 
-**Value Conservation:**
-- Strict value matching between legacy and current systems
-- Prevents value inflation or deflation during conversion
-- Validates conversion ratios for each shard type
-- Ensures mathematical accuracy of conversions
+**Security Features:**
+- Value conservation enforced across shard boundaries
+- Legacy system integration for secure coin destruction
+- Dual hashing maintains compatibility with all client versions
+- Test mode allows validation without permanent changes
 
-**Input Format:**
-- 4 bytes: Session ID (0 for test mode)
-- 1 byte: Source shard ID
-- 1 byte: Reserved
-- 16 bytes: Shard methodology data
-- 2 bytes: Legacy coin count
-- Variable: Legacy coin list (format depends on shard type)
-- 16 bytes: PAN (Proposed Authentication Number) guidance
-- 2 bytes: New coin count
-- Variable: New coin list (5 bytes each: 1 byte denomination + 4 bytes serial)
+**Used By:** Cross-shard migration tools
 
-**Output Format:**
-- Status code indicating success or specific failure reason
-
-### 4. Shard Switching Sum (`cmd_switch_shard_sum`)
+### 4. Switch Shard Sum (`cmd_switch_shard_sum`)
 **Parameters:**
-- Connection information structure containing request data
+- Connection information structure
 
-**Returns:** None (modifies connection structure with error status)
+**Returns:** None (returns not implemented status)
 
-**Purpose:** Provides alternative shard switching interface, currently not implemented.
+**Purpose:** Placeholder for alternative shard switching implementation. Currently not implemented but reserved for future shard switching variants.
 
 **Process:**
-1. **Stub Implementation:**
-   - Currently returns NOT_IMPLEMENTED error
-   - Reserved for future shard switching functionality
-   - Placeholder for alternative conversion logic
+1. **Status Return:**
+   - Returns ERROR_NOT_IMPLEMENTED status
+   - Placeholder for future implementation
+   - Maintains API compatibility
 
-**Input Format:**
-- Not yet implemented
+**Used By:** Future shard switching systems
 
-**Output Format:**
-- Error status indicating not implemented
-
-**Dependencies:**
-- None (stub function)
-
-### 5. Coin Pickup Operation (`cmd_pickup_coins`)
+### 5. Pickup Coins (`cmd_pickup_coins`)
 **Parameters:**
-- Connection information structure containing request data
-- Input: Variable-length payload (minimum 43 bytes) with coin pickup data
+- Connection information structure
+- Input: Variable-length payload (minimum 43 bytes) with session ID and coin specifications
 
-**Returns:** None (modifies connection structure with pickup results)
+**Returns:** None (modifies connection structure with operation result)
 
-**Purpose:** Takes ownership of coins that have been moved from another shard, completing the shard transition process.
+**Purpose:** Takes ownership of coins that have been moved from another shard, completing the shard transfer process by creating coins in the current system with proper authentication.
 
 **Process:**
 1. **Request Validation:**
-   - Validates minimum payload size (43 bytes)
-   - Extracts session ID and validates coin list alignment
-   - Calculates coin count from payload size (5 bytes per coin)
+   - Validates minimum 43-byte payload size
+   - Calculates coin count from payload (5 bytes per coin)
+   - Validates coin data alignment
 
-2. **Coin Ownership Transfer:**
-   - For each coin in the pickup list:
-     - Retrieves coin page using denomination and serial number
-     - Verifies page is reserved by requesting session
-     - Generates new authentication number using cryptographic hash
-     - Updates coin record with new authentication number
-     - Sets MFS timestamp to current month
-     - Marks database page as dirty for persistence
+2. **Session Validation:**
+   - Extracts session ID from request
+   - Validates session for coin pickup authorization
 
-3. **Statistics Update:**
-   - Updates coin count statistics for successful pickups
-   - Updates value statistics based on coin denomination
-   - Tracks successful shard transition operations
+3. **Coin Creation with Dual Hash Support:**
+   - For each coin in the pickup request:
+     - Extracts denomination and serial number
+     - Retrieves target page using on-demand cache
+     - Validates page is reserved by the requesting session
+     - Constructs hash input from session authentication data
+     - **Legacy Clients (encryption_type < 4):** Uses MD5 hash for authentication number generation
+     - **Modern Clients (encryption_type >= 4):** Uses SHA-256 hash for authentication number generation
+     - Sets MFS timestamp for new coin
+     - Marks page as dirty for persistence
+     - Updates statistics for ownership and value tracking
 
-4. **Session Management:**
-   - Validates session ID matches page reservation
-   - Ensures exclusive access to coin slots
-   - Prevents concurrent access conflicts
+4. **Statistics Update:**
+   - Increments POWN (ownership) counter
+   - Adds coin value to total value statistics
+   - Tracks successful shard transfers
 
-**Pickup Features:**
-- Session-based access control
-- Cryptographically secure authentication number generation
-- Statistics tracking for monitoring
-- Atomic operations per coin
+**Security Features:**
+- Session-based authorization prevents unauthorized pickup
+- Page reservation ensures exclusive access
+- Dual hashing maintains client compatibility
+- Statistics tracking provides audit trail
 
-**Input Format:**
-- 4 bytes: Session ID
-- 16 bytes: Authentication guidance data
-- Variable: Coin list (5 bytes each: 1 byte denomination + 4 bytes serial number)
-- 2 bytes: End-of-frame marker
-
-**Output Format:**
-- Status code indicating success or failure reason
+**Used By:** Shard transfer completion workflows, coin migration systems
 
 ## Data Structures and Formats
 
-### Shard Identifiers
-- **SHARD_CLOUDCOIN (1):** CloudCoin v1 legacy system
-- **SHARD_SUPERCOIN (2):** CloudCoin v2/SuperCoin system
-- **SHARD_NEW (3):** Current RAIDA system
-- **SHARD_UNKNOWN (0):** Unknown or invalid shard
+### Request Formats
+| Operation | Minimum Size | Structure |
+|-----------|-------------|-----------|
+| Get SNs | 39 bytes | Session ID (4) + Operation Type (1) + Denomination Bitmap (16) + Reserved (18) |
+| Switch Shard Sum | 50 bytes | Session ID (4) + Shard ID (1) + Signature (16) + Coin Counts + Coin Data + PANG + New Coins |
+| Pickup Coins | 43 bytes | Session ID (4) + Authentication (16) + Coin Specs (5 × N) + Reserved (18) |
 
-### Coin Record Formats
-- **Shard Query Record:** Session ID + operation type + denomination bitmap
-- **Legacy Coin Record:** Format depends on source shard type
-- **Current Coin Record:** 1 byte denomination + 4 bytes serial number
-- **Pickup Record:** Session ID + guidance + coin list
-
-### Conversion Ratios
-- **CloudCoin v1:** 1:1 value conversion (whole value matching)
-- **SuperCoin:** 85.125 value per coin conversion
-- **Current System:** Fractional value support with 8 decimal places
+### Coin Data Formats
+| Format | Size | Structure |
+|--------|------|-----------|
+| Coin Specification | 5 bytes | Denomination (1) + Serial Number (4) |
+| Legacy Coin Data | Variable | Shard-specific format for legacy coins |
 
 ### Response Formats
-- **Availability Response:** Denomination + range count + individual count + data
-- **Conversion Response:** Status code indicating success or failure reason
-- **Pickup Response:** Status code indicating success or failure reason
+| Operation | Response Format |
+|-----------|----------------|
+| Get SNs | Per denomination: Den (1) + Range Count (1) + Individual Count (1) + Range Data + Individual SNs |
+| Switch/Pickup | Status code only |
+
+### Value Calculation Structures
+| Shard Type | Value Calculation |
+|------------|------------------|
+| CloudCoin | Legacy calculation from coin data |
+| SuperCoin | Fixed value: 85.125 per coin |
+| Current RAIDA | Denomination-based value calculation |
+
+## Multi-Shard Integration
+
+### Legacy System Support
+- **CloudCoin v1:** Full integration with legacy detection and deletion systems
+- **SuperCoin:** Support for CloudCoin v2 protocols and value calculations
+- **Value Mapping:** Accurate value conversion between shard systems
+
+### Shard-Specific Operations
+- **Detection Phase:** Validates coins exist in source shard before transfer
+- **Deletion Phase:** Securely removes coins from source shard
+- **Creation Phase:** Creates equivalent value coins in target shard
 
 ## Security Considerations
 
 ### Value Conservation
-- **Strict Validation:** Total value must match exactly between shards
-- **Conversion Ratios:** Predefined ratios prevent value manipulation
-- **Mathematical Accuracy:** Precise calculations for value conservation
-- **Audit Trail:** All conversions tracked through statistics
+- **Atomic Operations:** All transfers succeed completely or fail entirely
+- **Value Verification:** Input and output values must match exactly
+- **Cross-Shard Validation:** Legacy system integration ensures coin authenticity
 
-### Authentication Security
-- **Cryptographic Generation:** Secure authentication number generation
-- **Session Management:** Session-based access control
-- **Page Reservation:** Prevents concurrent access conflicts
-- **Test Mode:** Safe validation without permanent changes
+### Authentication and Authorization
+- **Session Management:** Reservation system prevents concurrent conflicts
+- **Dual Hash Security:** Backward compatible cryptographic security
+- **Legacy Integration:** Secure integration with existing shard systems
 
-### Data Integrity
-- **Atomic Operations:** All-or-nothing conversion operations
-- **Page Locking:** Database page locking ensures consistency
-- **MFS Timestamps:** All changes timestamped for audit trail
-- **Dirty Page Tracking:** Modified data marked for persistence
+### Audit and Compliance
+- **Statistics Tracking:** All successful transfers recorded in statistics
+- **Operation Logging:** Complete audit trail for shard operations
+- **Error Tracking:** Failed operations logged for analysis
 
 ## Error Handling and Validation
 
 ### Input Validation
-- **Size Validation:** All payloads validated for expected length
-- **Parameter Validation:** All parameters within acceptable ranges
-- **Shard Validation:** Shard IDs must be valid and supported
-- **Session Validation:** Pages must be reserved by requesting session
+- **Size Validation:** Payload sizes validated for each operation type
+- **Shard Validation:** Shard IDs validated against supported values
+- **Value Validation:** Input and output coin values must match exactly
+- **Coin Validation:** All coin specifications validated for proper format
 
-### Error Conditions
-- `ERROR_INVALID_PACKET_LENGTH`: Incorrect payload size
-- `ERROR_INVALID_PARAMETER`: Invalid operation type
-- `ERROR_INVALID_SHARD`: Invalid shard identifier
-- `ERROR_INVALID_SHARD_ID`: Shard ID out of range
-- `ERROR_AMOUNT_MISMATCH`: Value conservation violation
-- `ERROR_BAD_COINS`: Legacy coin validation failure
-- `ERROR_PAGE_IS_NOT_RESERVED`: Page not reserved by session
-- `ERROR_COINS_NOT_DIV`: Coin data alignment error
-- `ERROR_NOT_IMPLEMENTED`: Feature not yet implemented
+### Runtime Validation
+- **Session Validation:** Sessions validated for proper authorization
+- **Page Validation:** Target pages validated for availability and reservation
+- **Legacy Validation:** Legacy system coins validated before destruction
 
-### Recovery Mechanisms
-- **Test Mode:** Validate operations without permanent changes
-- **Rollback Support:** Framework for transaction rollback
-- **State Consistency:** Failed operations leave state unchanged
-- **Resource Cleanup:** Proper cleanup on error conditions
+### Error Recovery
+- **Resource Cleanup:** Page locks and memory freed on error conditions
+- **State Consistency:** Failed operations leave all shards unchanged
+- **Transaction Integrity:** Atomic operations ensure no partial state
 
 ## Performance Characteristics
 
-### Batch Processing
-- **Large-Scale Operations:** Support for bulk coin conversions
-- **Efficient Value Calculation:** Optimized value computation
-- **Range-Based Responses:** Efficient representation of available coins
-- **Parallel Processing:** Multiple coins processed efficiently
+### Bulk Operation Optimization
+- **Range Processing:** Efficient handling of contiguous serial number ranges
+- **Batch Validation:** Legacy systems support batch coin validation
+- **Memory Efficiency:** Optimized data structures for large coin collections
 
-### Memory Management
-- **Dynamic Allocation:** Response buffers allocated as needed
-- **Resource Cleanup:** Proper cleanup on all code paths
-- **Cache Integration:** Efficient page access through on-demand cache
-- **Statistics Integration:** Efficient tracking of operations
+### Cross-Shard Efficiency
+- **Single-Pass Operations:** Minimize legacy system calls
+- **Value Caching:** Efficient value calculations for different shard types
+- **Statistics Batching:** Efficient statistics updates for bulk operations
 
-### Network Efficiency
-- **Batch Operations:** Multiple coins in single request
-- **Compressed Responses:** Range-based format reduces data transfer
-- **Test Mode:** Validate before execution to prevent errors
-- **Session Management:** Efficient session-based access control
+### Database Integration
+- **On-Demand Cache:** Efficient use of database layer caching
+- **Page Reservation:** Prevents conflicts during multi-step operations
+- **Dirty Page Management:** Optimized persistence for bulk changes
 
 ## Dependencies and Integration
 
 ### Required Modules
-- **Database Layer:** On-demand page cache for coin data access
-- **Legacy Systems:** CloudCoin v1 and SuperCoin interfaces
+- **Database Layer:** On-demand page cache and reservation system
+- **Legacy Systems:** CloudCoin v1 and SuperCoin detection/deletion interfaces
+- **Utilities Module:** Dual hash functions and value calculations
 - **Statistics System:** Operation counting and value tracking
-- **Cryptographic Utilities:** Secure authentication number generation
-- **Configuration System:** Shard configuration and validation
+- **Configuration Module:** Shard limits and server identification
 
 ### External Constants Required
-- `MAX_AVAILABLE_COINS`: Maximum coins returned in availability query
-- `SHARD_*`: Shard identification constants
-- `POWN_FIELD_IDX`, `POWN_VALUE_FIELD_IDX`: Statistics field indices
-- `STATUS_*`: Operation result status codes
-- `ERROR_*`: Error condition definitions
+- `SHARD_*`: Shard type identifiers
+- `MAX_SHARD`: Maximum valid shard identifier
+- `RECORDS_PER_PAGE`: Database page organization
+- `POWN_FIELD_IDX`, `POWN_VALUE_FIELD_IDX`: Statistics field identifiers
+
+### Legacy System Dependencies
+- **CloudCoin v1 Interface:** Functions for legacy coin detection and deletion
+- **SuperCoin Interface:** Functions for CloudCoin v2 operations
+- **Value Calculation:** Legacy-specific value calculation methods
 
 ### Used By
-- **Client Applications:** Primary interface for shard transitions
-- **Migration Tools:** Bulk migration from legacy systems
-- **Administrative Tools:** Shard management and monitoring
+- **Migration Tools:** Primary interface for cross-shard coin migration
+- **Administrative Tools:** Bulk shard management and maintenance
 - **Trading Systems:** Cross-shard value transfers
 
+### Cross-File Dependencies
+- **Database Layer:** Page access, locking, and persistence
+- **Legacy Systems:** CloudCoin and SuperCoin integration modules
+- **Utilities Module:** Hash generation and value calculation functions
+- **Statistics Module:** Operation tracking and audit trail
+- **Configuration Module:** Shard configuration and limits
+
 ## Threading and Concurrency
-- **Page Locking:** Thread-safe access to coin data
-- **Session Management:** Session-based concurrency control
-- **Atomic Operations:** Individual operations are atomic
-- **Resource Safety:** Proper cleanup ensures no resource leaks
 
-## Legacy System Integration
-- **CloudCoin v1:** Complete integration with legacy detection and deletion
-- **SuperCoin:** Support for CloudCoin v2 protocols
-- **Value Conversion:** Accurate conversion between systems
-- **Migration Support:** Smooth transition from legacy to current
+### Session-Based Isolation
+- **Reservation System:** Each session operates on reserved pages
+- **Atomic Operations:** Individual shard operations are atomic
+- **Concurrent Sessions:** Multiple shard operations can proceed simultaneously
+- **Resource Safety:** Proper cleanup ensures thread safety
 
-## Mathematical Properties
-- **Value Conservation:** Total value preserved across conversions
-- **Conversion Ratios:** Fixed ratios for each shard type
-- **Precision Handling:** Proper handling of fractional values
-- **Overflow Protection:** Prevents arithmetic overflow in calculations
+### Legacy System Integration
+- **Synchronous Operations:** Legacy system calls are synchronous
+- **Thread Safety:** Legacy interfaces accessed in thread-safe manner
+- **Resource Management:** Proper cleanup of legacy system resources
 
-This shard command module provides essential cross-system compatibility for the RAIDA network, enabling seamless transitions between different coin systems while maintaining value conservation and cryptographic security.
+## Backward Compatibility
+
+### Dual Hash Support
+- **Algorithm Selection:** Automatic selection based on client encryption type
+- **Legacy MD5:** Full support for existing client implementations
+- **Modern SHA-256:** Enhanced security for newer clients
+- **Transparent Operation:** Hash selection transparent to calling code
+
+### Legacy System Compatibility
+- **CloudCoin v1:** Full backward compatibility with original system
+- **SuperCoin:** Complete support for CloudCoin v2 protocols
+- **Value Mapping:** Accurate conversion between legacy and current value systems
+
+## Value Conservation and Verification
+
+### Multi-Shard Value Calculations
+- **CloudCoin:** Uses legacy system's native value calculation
+- **SuperCoin:** Fixed value per coin (85.125)
+- **Current RAIDA:** Denomination-based value calculation
+- **Precision Handling:** Proper handling of fractional values across systems
+
+### Conservation Enforcement
+- **Pre-Operation Validation:** Values calculated before any modifications
+- **Atomic Verification:** Value match required before proceeding
+- **Error on Mismatch:** Operations fail if values don't match exactly
+- **Audit Trail:** Value calculations logged for verification
+
+## Test Mode Support
+
+### Non-Destructive Testing
+- **Session ID Zero:** Special session ID enables test mode
+- **Validation Only:** Test mode validates without making changes
+- **Legacy Testing:** Legacy systems support test-only operations
+- **Result Verification:** Test results provided without side effects
+
+### Production Safeguards
+- **Test Detection:** Automatic detection of test vs. production operations
+- **State Preservation:** Test operations leave all state unchanged
+- **Error Simulation:** Test mode can simulate various error conditions
+
+## Migration and Integration Support
+
+### Gradual Migration
+- **Shard Coexistence:** Multiple shard types can operate simultaneously
+- **Progressive Transfer:** Supports gradual migration between shards
+- **Rollback Preparation:** Infrastructure for future rollback capabilities
+
+### Administrative Support
+- **Bulk Operations:** Efficient handling of large-scale migrations
+- **Progress Tracking:** Statistics provide migration progress visibility
+- **Error Recovery:** Comprehensive error handling for failed migrations
+
+This shard command module provides essential functionality for  migration within the RAIDA network, enabling secure value transfers between different cryptocurrency systems while maintaining value conservation, backward compatibility, and comprehensive audit capabilities.

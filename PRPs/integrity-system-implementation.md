@@ -1,396 +1,509 @@
-# Merkle Tree Integrity System Implementation (integrity.c)
+# Merkle Tree Integrity System (integrity.c)
 
 ## Module Purpose
-This module implements a comprehensive Merkle tree-based integrity verification system for the RAIDA network. It provides cryptographic data integrity checking, distributed synchronization capabilities, and efficient detection of data inconsistencies across the network through hierarchical hash trees and background maintenance operations.
+This module implements a comprehensive Merkle Tree-based integrity verification and self-healing system for the RAIDA network. It provides distributed consensus mechanisms, DDoS-resistant two-stage protocols, selective hashing for standardized verification, and automated healing capabilities to maintain network data integrity across all RAIDA servers.
+
+## Constants and Configuration
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `TOTAL_DENOMINATIONS` | Variable | Number of supported coin denominations |
+| `HASH_SIZE` | 32 | Size of SHA-256 hash values in bytes |
+| `TOTAL_RAIDA_SERVERS` | 25 | Number of servers in RAIDA network |
+| `TOTAL_PAGES` | Variable | Number of pages per denomination |
+| `RECORDS_PER_PAGE` | Variable | Number of coin records per page |
+
+## Data Structures
+
+### Merkle Tree Structure
+| Field | Type | Description |
+|-------|------|-------------|
+| `levels` | Hash Array Pointer Array | 2D array of hash pointers for each tree level |
+| `num_levels` | Integer | Total number of levels in the tree |
+| `leaf_count` | Integer | Number of leaf nodes (pages) in the tree |
+
+### Tree Node Coordinates
+| Field | Size | Description |
+|-------|------|-------------|
+| `level` | 4 bytes | Tree level (0 = leaf level, increases toward root) |
+| `index` | 4 bytes | Node index within the specified level |
+
+### Cache Management
+| Field | Type | Description |
+|-------|------|-------------|
+| `merkle_tree_cache[TOTAL_DENOMINATIONS]` | Tree Pointer Array | Cached Merkle trees for each denomination |
+| `merkle_tree_locks[TOTAL_DENOMINATIONS]` | Mutex Array | Thread safety locks for each cached tree |
 
 ## Core Functionality
 
-### 1. Integrity System Initialization (`init_integrity_system`)
-**Parameters:**
-- None
+### 1. Initialize Integrity System (`init_integrity_system`)
+**Parameters:** None
 
-**Returns:** Integer status code (0 for success, -1 for failure)
+**Returns:** Integer (0 for success, -1 for failure)
 
-**Purpose:** Initializes the Merkle tree integrity system and launches background synchronization threads.
+**Purpose:** Initializes the Merkle Tree integrity system with master on/off switch support, thread-safe caching, and background synchronization processes.
 
 **Process:**
-1. **Cache Initialization:**
-   - Initializes Merkle tree cache array for all denominations
-   - Sets up cache mutex for thread-safe access
-   - Clears all cache entries to null state
+1. **Configuration Check:**
+   - Checks `synchronization_enabled` flag in configuration
+   - If disabled, logs warning and returns success without initialization
+   - Enables controlled deployment of integrity features
 
-2. **Background Thread Launch:**
-   - Creates and starts Merkle synchronization thread
+2. **Cache Initialization:**
+   - Initializes cache array for all denominations
+   - Creates thread-safety mutexes for each denomination
+   - Sets up cache management data structures
+
+3. **Background Thread Startup:**
+   - Launches Merkle sync thread for periodic operations
    - Configures thread for continuous background operation
-   - Sets up periodic rebuild scheduling
-   - Initializes thread communication mechanisms
+   - Establishes thread cleanup and shutdown procedures
 
-**Dependencies:**
-- Threading system for background operations
-- Configuration system for timing parameters
-- Cryptographic libraries for hash operations
+**Feature Control:**
+- **Master Switch:** Allows deployment with integrity system disabled
+- **Safe Deployment:** System operates normally without integrity features
+- **Gradual Rollout:** Enables controlled feature activation across network
 
-### 2. Background Synchronization Thread (`merkle_sync_thread`)
+**Used By:** Server initialization, system startup
+
+**Dependencies:** Configuration system, threading infrastructure
+
+### 2. Merkle Sync Thread (`merkle_sync_thread`)
 **Parameters:**
-- Thread argument pointer (unused)
+- Thread argument (unused)
 
-**Returns:** Thread result (null)
+**Returns:** Thread result
 
-**Purpose:** Continuously rebuilds Merkle trees for all denominations, ensuring up-to-date integrity information.
+**Purpose:** Background thread implementing the two-stage integrity verification and healing protocol with distributed consensus and automated recovery.
 
 **Process:**
-1. **Periodic Operation:**
+1. **Periodic Cycle Initiation:**
    - Sleeps for configured integrity frequency
-   - Wakes up to rebuild all denomination trees
+   - Wakes up to perform integrity checking cycle
    - Continues until system shutdown signal
 
-2. **Tree Rebuilding Cycle:**
-   - Iterates through all supported denominations
-   - Builds new Merkle tree for each denomination
-   - Replaces cached tree with new version
-   - Frees old tree memory safely
+2. **Local Merkle Tree Rebuild:**
+   - Rebuilds all Merkle trees for current server
+   - Updates cache with fresh tree data
+   - Establishes baseline for integrity comparison
 
-3. **Error Handling:**
-   - Logs successful tree rebuilds
-   - Handles failed tree construction gracefully
-   - Continues operation despite individual failures
-   - Maintains system stability
+3. **Stage 1: UDP Quick Vote (DDoS-Proof):**
+   - Sends UDP vote requests to all other RAIDA servers
+   - Includes complete root hash collection in request
+   - Receives match/no-match votes from peers
+   - Counts votes to determine consensus status
 
-**Background Features:**
-- Configurable rebuild frequency
-- Automatic tree updates
-- Memory management for old trees
-- Graceful error recovery
+4. **Consensus Evaluation:**
+   - If majority matches: Local data is correct, cycle complete
+   - If minority matches: Proceed to Stage 2 for healing
 
-### 3. Merkle Tree Construction (`build_merkle_tree_for_denomination`)
+5. **Stage 2: TCP Ballot Collection (Reliable & Secure):**
+   - Sends TCP requests to disagreeing RAIDA servers
+   - Collects complete root hash collections via reliable protocol
+   - Analyzes collected data to determine true majority
+   - Identifies trusted peer with correct data
+
+6. **Healing Process:**
+   - For each denomination with disagreement:
+     - Performs binary search through Merkle tree structure
+     - Identifies specific corrupted pages
+     - Downloads correct page data from trusted peer
+     - Replaces corrupted local data atomically
+
+**Security Features:**
+- **DDoS Resistance:** UDP stage prevents amplification attacks
+- **Byzantine Fault Tolerance:** Works correctly despite server failures
+- **Majority Consensus:** Democratic decision-making across network
+- **Authenticated Healing:** Only trusted sources used for data repair
+
+**Used By:** Background integrity maintenance
+
+**Dependencies:** Network layer, Merkle tree construction, consensus protocols
+
+### 3. Find and Heal Discrepancies (`find_and_heal_discrepancies`)
 **Parameters:**
-- Denomination identifier (1 byte signed integer)
+- Denomination (8-bit integer)
+- Trusted peer RAIDA index (integer)
+- Majority root hashes (byte array)
 
-**Returns:** Merkle tree structure pointer or null on failure
+**Returns:** None
 
-**Purpose:** Constructs a complete Merkle tree for a specific denomination by hashing all page data.
+**Purpose:** Performs intelligent binary search through Merkle tree to identify and heal specific corrupted pages with minimal network overhead.
 
 **Process:**
-1. **Leaf Hash Generation:**
-   - Reads all page files for the denomination
-   - Generates SHA-256 hash for each page
-   - Handles missing pages with zero hashes
-   - Creates leaf node array
+1. **Tree Traversal Setup:**
+   - Creates traversal queue for systematic tree examination
+   - Starts from root level and works down to leaf level
+   - Uses breadth-first approach for efficient healing
 
-2. **Tree Structure Calculation:**
-   - Determines tree height from leaf count
-   - Calculates number of levels needed
-   - Allocates memory for tree structure
-   - Sets up level arrays
+2. **Binary Search Process:**
+   - For each tree node:
+     - Requests corresponding node hash from trusted peer
+     - Compares local hash with trusted peer's hash
+     - If hashes match: subtree is correct, skip children
+     - If hashes differ: add child nodes to examination queue
 
-3. **Bottom-Up Tree Construction:**
-   - Starts with leaf hashes at level 0
-   - Combines adjacent hashes for upper levels
-   - Handles odd numbers of nodes by duplication
-   - Continues until single root hash
+3. **Leaf Node Healing:**
+   - When reaching leaf level (individual pages):
+     - Identifies specific corrupted pages
+     - Downloads complete page data from trusted peer
+     - Replaces local page file atomically
 
-4. **Tree Finalization:**
-   - Stores complete tree structure
-   - Sets tree metadata (levels, leaf count)
-   - Validates tree consistency
-   - Returns completed tree
+4. **Efficient Navigation:**
+   - Uses tree structure to minimize network requests
+   - Focuses healing effort on actually corrupted data
+   - Avoids unnecessary downloads of correct data
 
-**Tree Construction Features:**
-- Binary tree structure with power-of-2 levels
-- SHA-256 hashing for cryptographic security
-- Handles variable page counts gracefully
-- Memory-efficient storage structure
+**Performance Features:**
+- **Logarithmic Complexity:** O(log n) navigation through tree structure
+- **Minimal Network Usage:** Only downloads necessary data
+- **Targeted Healing:** Focuses on actually corrupted pages
+- **Atomic Replacement:** Page updates are atomic operations
 
-### 4. Root Hash Retrieval (`get_merkle_root`)
+**Used By:** Merkle sync thread during healing operations
+
+**Dependencies:** Network communication, file system operations
+
+### 4. Heal Page (`heal_page`)
 **Parameters:**
-- Denomination identifier (1 byte signed integer)
-- Output buffer for root hash (32 bytes)
+- Denomination (8-bit integer)
+- Page number (integer)
+- Trusted RAIDA index (integer)
 
-**Returns:** Integer status code (0 for success, -1 for failure)
+**Returns:** None
 
-**Purpose:** Retrieves the root hash of a Merkle tree for network integrity verification.
+**Purpose:** Downloads and atomically replaces a specific corrupted page with correct data from a trusted RAIDA server.
+
+**Process:**
+1. **Data Request:**
+   - Constructs page data request for trusted RAIDA server
+   - Sends request via TCP for reliable delivery
+   - Validates response size and format
+
+2. **Atomic Replacement:**
+   - Opens local page file in write mode
+   - Writes complete page data in single operation
+   - Closes file to ensure atomic update
+
+3. **Validation:**
+   - Verifies complete write operation
+   - Logs successful healing operation
+   - Updates internal state as needed
+
+**Security Features:**
+- **Trusted Source:** Only downloads from consensus-verified peers
+- **Atomic Updates:** Complete page replacement prevents partial corruption
+- **Validation:** Write operations validated for success
+
+**Used By:** Binary search healing process
+
+**Dependencies:** Network layer, file system operations
+
+### 5. Build Merkle Tree for Denomination (`build_merkle_tree_for_denomination`)
+**Parameters:**
+- Denomination (8-bit integer)
+
+**Returns:** Merkle tree pointer (NULL on failure)
+
+**Purpose:** Constructs complete Merkle tree for a denomination using selective hashing to ensure consistent verification across servers with different default data.
+
+**Process:**
+1. **Leaf Hash Generation (Selective Hashing):**
+   - For each page in denomination:
+     - Reads complete page data from disk
+     - Applies selective hashing algorithm:
+       - **Circulating Coins (MFS ≠ 0):** Include actual authentication number
+       - **Available Coins (MFS = 0):** Use standardized placeholder (zeros)
+     - Generates SHA-256 hash of standardized page representation
+     - Stores hash as leaf node in tree
+
+2. **Tree Construction:**
+   - Calculates required tree levels based on leaf count
+   - Builds tree bottom-up from leaf level to root
+   - For each internal level:
+     - Pairs adjacent nodes from level below
+     - Combines paired hashes using SHA-256
+     - Handles odd node counts by duplicating last node
+
+3. **Memory Management:**
+   - Allocates tree structure and all node arrays
+   - Handles memory allocation failures gracefully
+   - Provides cleanup function for tree destruction
+
+**Selective Hashing Benefits:**
+- **Standardization:** Ensures identical hashes across servers despite different default data
+- **Consistency:** Only actual coin data affects hash values
+- **Compatibility:** Works correctly regardless of page initialization methods
+- **Integrity:** Detects any changes to actual coin data
+
+**Used By:** Merkle sync thread, tree cache management
+
+**Dependencies:** File system access, cryptographic hashing
+
+### 6. Get Merkle Root (`get_merkle_root`)
+**Parameters:**
+- Denomination (8-bit integer)
+- Output hash buffer (32 bytes)
+
+**Returns:** Integer (0 for success, -1 for failure)
+
+**Purpose:** Retrieves root hash for specified denomination from cache with thread-safe access.
 
 **Process:**
 1. **Cache Access:**
-   - Acquires cache mutex for thread safety
-   - Looks up tree for requested denomination
-   - Validates tree existence and completeness
+   - Acquires denomination-specific mutex
+   - Accesses cached tree for denomination
+   - Validates tree exists and is properly constructed
 
-2. **Root Hash Extraction:**
-   - Accesses top level of tree structure
-   - Copies root hash to output buffer
-   - Ensures complete hash transfer
+2. **Root Extraction:**
+   - Copies root hash from tree structure
+   - Root is located at highest level, index 0
+   - Returns 32-byte SHA-256 hash
 
-3. **Thread Safety:**
-   - Releases cache mutex after operation
-   - Handles concurrent access safely
-   - Prevents race conditions
+3. **Error Handling:**
+   - Returns error if tree not cached
+   - Handles missing or corrupted tree data
+   - Releases mutex in all cases
 
-**Security Features:**
-- Thread-safe cache access
-- Cryptographic hash integrity
-- Atomic read operations
-- Validation of tree completeness
+**Used By:** Integrity verification, consensus protocols, UDP vote requests
 
-### 5. Node Hash Retrieval (`get_merkle_node`)
+**Dependencies:** Thread synchronization, cache management
+
+### 7. Get Merkle Branch (`get_merkle_branch`)
 **Parameters:**
-- Denomination identifier (1 byte signed integer)
-- Tree level (4 bytes unsigned integer)
-- Node index within level (4 bytes unsigned integer)
-- Output buffer for node hash (32 bytes)
+- Denomination (8-bit integer)
+- Level (integer)
+- Index (integer)  
+- Depth (integer)
+- Output branch data pointer
+- Output branch size pointer
 
-**Returns:** Integer status code (0 for success, -1 for failure)
+**Returns:** Integer (0 for success, -1 for failure)
 
-**Purpose:** Retrieves a specific node hash from a Merkle tree for detailed integrity verification.
+**Purpose:** Extracts branch data from Merkle tree for healing operations, supporting multi-level queries for efficient tree traversal.
 
 **Process:**
 1. **Parameter Validation:**
-   - Validates denomination within acceptable range
-   - Checks level against tree height
-   - Validates index within level bounds
+   - Validates level and index within tree bounds
+   - Ensures depth doesn't exceed tree structure
+   - Calculates total data size needed
 
-2. **Cache Access:**
-   - Acquires cache mutex for thread safety
-   - Looks up tree for requested denomination
-   - Validates tree structure completeness
+2. **Branch Extraction:**
+   - For each requested depth level:
+     - Calculates node range for current level
+     - Copies hash data for all nodes in range
+     - Advances to next level toward leaves
 
-3. **Node Hash Extraction:**
-   - Accesses specified level and index
-   - Copies node hash to output buffer
-   - Validates hash data integrity
+3. **Response Construction:**
+   - Allocates output buffer for all hash data
+   - Copies hash data sequentially
+   - Returns total size and data pointer
 
-4. **Thread Safety:**
-   - Releases cache mutex after operation
-   - Handles concurrent access safely
-   - Prevents data corruption
+**Used By:** Binary search healing, tree navigation
 
-**Node Access Features:**
-- Efficient array-based indexing
-- Bounds checking for safety
-- Thread-safe access patterns
-- Cryptographic hash validation
+**Dependencies:** Cache management, memory allocation
 
-### 6. Tree Memory Management (`free_merkle_tree`)
+### 8. Network Communication Functions
+
+#### Send UDP Vote Request (`send_udp_vote_request`)
 **Parameters:**
-- Merkle tree structure pointer
+- RAIDA index (integer)
+- Local root hashes (byte array)
+
+**Returns:** Integer (1=match, 0=no match, -1=error)
+
+**Purpose:** Sends DDoS-resistant UDP vote request to peer RAIDA server for quick consensus check.
+
+**Process:**
+1. **Request Construction:**
+   - Creates UDP packet with command ID 7
+   - Includes complete local root hash collection
+   - Adds cryptographic nonce for response validation
+
+2. **Network Communication:**
+   - Sends UDP packet to specified RAIDA server
+   - Configures short timeout for responsiveness
+   - Handles network errors gracefully
+
+3. **Response Validation:**
+   - Validates response format and nonce
+   - Extracts match/no-match vote
+   - Returns consensus vote to caller
+
+#### Send TCP Get All Roots (`send_tcp_get_all_roots`)
+**Parameters:**
+- RAIDA index (integer)
+- Request body data (byte array)
+- Response body pointer
+- Response length pointer
+
+**Returns:** Integer (0 for success, -1 for failure)
+
+**Purpose:** Sends reliable TCP request for complete root hash collection or specific tree data.
+
+**Process:**
+1. **Connection Establishment:**
+   - Creates TCP connection to target RAIDA server
+   - Configures appropriate timeouts
+   - Handles connection failures
+
+2. **Protocol Communication:**
+   - Constructs proper protocol headers
+   - Includes challenge-response authentication
+   - Sends request with specified body data
+
+3. **Response Processing:**
+   - Receives and validates response headers
+   - Extracts response body data
+   - Validates response format and size
+
+**Used By:** Ballot collection, binary search communication
+
+**Dependencies:** Network stack, protocol layer
+
+### 9. Free Merkle Tree (`free_merkle_tree`)
+**Parameters:**
+- Tree pointer
 
 **Returns:** None
 
 **Purpose:** Safely deallocates all memory associated with a Merkle tree structure.
 
 **Process:**
-1. **Tree Validation:**
-   - Checks for null tree pointer
-   - Validates tree structure integrity
-   - Prevents double-free operations
-
-2. **Level-by-Level Deallocation:**
+1. **Level-by-Level Cleanup:**
    - Iterates through all tree levels
-   - Calculates nodes per level
-   - Frees individual node hash memory
+   - Frees individual hash node memory
    - Frees level array memory
 
-3. **Structure Cleanup:**
-   - Frees level pointer array
+2. **Structure Cleanup:**
    - Frees main tree structure
-   - Prevents memory leaks
-   - Maintains memory hygiene
+   - Nullifies pointer to prevent reuse
+   - Ensures complete memory cleanup
 
-**Memory Management Features:**
-- Safe null pointer handling
-- Complete memory deallocation
-- Prevention of memory leaks
-- Structured cleanup process
+**Used By:** Cache management, system shutdown
 
-### 7. Cryptographic Hash Operations (`hash_data`)
-**Parameters:**
-- First data buffer pointer and length
-- Second data buffer pointer and length (optional)
-- Output hash buffer (32 bytes)
+**Dependencies:** Memory management
 
-**Returns:** None
+## Selective Hashing Algorithm
 
-**Purpose:** Computes SHA-256 hash of one or two data buffers for tree construction.
+### Standardization Process
+1. **Page Reading:** Read complete page data (RECORDS_PER_PAGE × 17 bytes)
+2. **Coin Processing:** For each coin record:
+   - **If MFS ≠ 0:** Copy actual 16-byte authentication number
+   - **If MFS = 0:** Use 16 bytes of zeros (standardized placeholder)
+3. **Hash Generation:** Apply SHA-256 to standardized 16 × RECORDS_PER_PAGE byte buffer
+4. **Result:** 32-byte hash that's identical across servers regardless of default data
 
-**Process:**
-1. **Hash Context Initialization:**
-   - Initializes SHA-256 context
-   - Prepares for data input
-   - Sets up cryptographic state
+### Benefits of Selective Hashing
+- **Consensus Compatibility:** Different servers with different default data produce identical hashes
+- **Integrity Detection:** Any change to actual coin data affects hash value
+- **Efficiency:** Only meaningful data contributes to hash calculations
+- **Standardization:** Provides consistent verification baseline across network
 
-2. **Data Processing:**
-   - Updates hash with first data buffer
-   - Optionally updates with second buffer
-   - Handles variable input lengths
+## Two-Stage DDoS-Resistant Protocol
 
-3. **Hash Finalization:**
-   - Finalizes SHA-256 computation
-   - Outputs 32-byte hash result
-   - Clears sensitive context data
+### Stage 1: UDP Quick Vote
+- **Purpose:** Fast consensus check with DDoS protection
+- **Method:** UDP packets with complete root hash collections
+- **Protection:** Requires peer to submit their own data (proof of work)
+- **Outcome:** Majority/minority determination for local data
 
-**Cryptographic Features:**
-- SHA-256 cryptographic security
-- Support for multi-buffer hashing
-- Secure context management
-- Standard hash output format
+### Stage 2: TCP Ballot Collection  
+- **Purpose:** Reliable consensus building for healing
+- **Method:** TCP connections for guaranteed delivery
+- **Security:** Challenge-response authentication
+- **Data:** Complete root hash collections for consensus analysis
 
-## Data Structures and Formats
-
-### Merkle Tree Structure
-- **Tree Levels:** Array of level pointers for hierarchical organization
-- **Level Arrays:** Arrays of node hash pointers for each level
-- **Node Hashes:** 32-byte SHA-256 hash values
-- **Tree Metadata:** Level count, leaf count, and structure information
-
-### Hash Format
-- **Hash Size:** 32 bytes (SHA-256 standard)
-- **Leaf Hashes:** SHA-256 of individual page data
-- **Internal Hashes:** SHA-256 of concatenated child hashes
-- **Root Hash:** Single hash representing entire denomination
-
-### Cache Structure
-- **Cache Array:** Fixed-size array for all denominations
-- **Cache Mutex:** Thread synchronization for safe access
-- **Tree Pointers:** References to cached Merkle trees
-- **Denomination Indexing:** Direct array access by denomination
-
-### File Organization
-- **Page Files:** Binary files containing coin data
-- **Hierarchical Paths:** Denomination/MSB/Page file organization
-- **Direct File Access:** Bypasses cache for tree building
-- **Error Handling:** Graceful handling of missing files
+### Healing Phase
+- **Binary Search:** Efficient identification of corrupted data
+- **Targeted Downloads:** Only corrupted pages downloaded
+- **Atomic Updates:** Complete page replacement prevents partial corruption
 
 ## Performance Characteristics
 
-### Tree Construction Efficiency
-- **Logarithmic Height:** Tree height grows logarithmically with pages
-- **Parallel Processing:** Multiple trees built independently
-- **Memory Efficiency:** Only necessary data loaded for construction
-- **Incremental Updates:** Background rebuilding minimizes disruption
+### Network Efficiency
+- **UDP Stage:** Minimal network overhead for common case (no healing needed)
+- **Binary Search:** Logarithmic complexity reduces healing network traffic
+- **Targeted Healing:** Only corrupted data downloaded and replaced
 
-### Hash Computation Performance
-- **SHA-256 Optimization:** Hardware acceleration where available
-- **Batch Processing:** Multiple pages processed efficiently
-- **Memory Management:** Efficient allocation and cleanup
-- **Caching Benefits:** Frequently accessed trees cached
+### Memory Management
+- **Tree Caching:** Hot trees kept in memory for fast access
+- **Selective Construction:** Trees built only when needed
+- **Memory Bounds:** Cache size limits prevent memory exhaustion
 
-### Network Synchronization
-- **Minimal Data Transfer:** Only hash values exchanged
-- **Hierarchical Verification:** Can verify subsets efficiently
-- **Parallel Operations:** Multiple servers synchronized simultaneously
-- **Error Detection:** Rapid identification of inconsistencies
+### Computational Efficiency
+- **SHA-256 Optimization:** Hardware acceleration when available
+- **Incremental Updates:** Trees rebuilt only when necessary
+- **Parallel Processing:** Multiple denomination trees processed concurrently
 
 ## Security Considerations
 
-### Cryptographic Security
-- **SHA-256 Strength:** Cryptographically secure hash function
-- **Collision Resistance:** Computationally infeasible to generate collisions
-- **One-Way Function:** Cannot reverse-engineer data from hashes
-- **Tamper Detection:** Any data change affects hash chain
+### Consensus Security
+- **Byzantine Fault Tolerance:** Correct operation despite arbitrary server failures
+- **Majority Rule:** Democratic decision-making prevents minority attacks
+- **Authenticated Communication:** All inter-server communication authenticated
 
 ### Data Integrity
-- **Complete Verification:** Entire denomination state verified
-- **Partial Verification:** Can verify subsets without full data
-- **Consistency Checking:** Detects inconsistencies across network
-- **Audit Trail:** Hash values provide verification history
+- **Cryptographic Hashing:** SHA-256 provides strong integrity guarantees
+- **Atomic Operations:** Page updates are atomic to prevent corruption
+- **Verification:** All downloaded data verified before use
 
-### Thread Safety
-- **Cache Synchronization:** Mutex-protected cache access
-- **Atomic Operations:** Tree updates are atomic
-- **Resource Protection:** Prevents concurrent modification
-- **Deadlock Prevention:** Proper lock ordering
-
-## Error Handling and Validation
-
-### Input Validation
-- **Parameter Checking:** All inputs validated before processing
-- **Range Validation:** Array bounds checked for safety
-- **Null Pointer Checking:** Safe handling of null pointers
-- **Structure Validation:** Tree integrity verified
-
-### Error Conditions
-- **Memory Allocation Failures:** Graceful handling of memory exhaustion
-- **File I/O Errors:** Handles missing or corrupted files
-- **Threading Errors:** Safe handling of thread creation failures
-- **Cryptographic Errors:** Validation of hash operations
-
-### Recovery Mechanisms
-- **Graceful Degradation:** Continues operation despite failures
-- **Resource Cleanup:** Proper cleanup on error conditions
-- **Error Logging:** Detailed error reporting for debugging
-- **State Consistency:** Maintains consistent state on failures
+### DDoS Protection
+- **Resource Limits:** Bounded response sizes protect server resources
+- **Proof of Work:** UDP requests require peer participation
+- **Rate Limiting Ready:** Fixed operation costs enable rate limiting
 
 ## Dependencies and Integration
 
 ### Required Modules
-- **Cryptographic Libraries:** SHA-256 implementation (OpenSSL)
-- **Threading System:** Background thread management
-- **File System:** Direct file access for page data
-- **Configuration System:** Timing and parameter configuration
-- **Database Layer:** Integration with denomination indexing
+- **Database Layer:** Page file access and coin data reading
+- **Network Layer:** UDP/TCP communication with other RAIDA servers
+- **Configuration System:** Integrity frequency, enable/disable flags
+- **Cryptographic Library:** SHA-256 hashing functions
+- **Threading System:** Background thread management and synchronization
 
 ### External Constants Required
-- `HASH_SIZE`: Size of SHA-256 hash (32 bytes)
-- `TOTAL_DENOMINATIONS`: Number of supported denominations
-- Configuration parameters for timing and paths
-- Database constants for page organization
+- `TOTAL_RAIDA_SERVERS`: Network size for consensus calculations
+- `TOTAL_DENOMINATIONS`: Number of denominations for tree cache
+- `RECORDS_PER_PAGE`: Page structure for hash calculations
+- Configuration settings for timing and network addresses
 
 ### Used By
-- **Integrity Command Handlers:** Primary interface for hash retrieval
-- **Network Synchronization:** Inter-server integrity verification
-- **Administrative Tools:** Data integrity monitoring
-- **Healing Operations:** Consistency checking during recovery
+- **Integrity Command Handlers:** Provide access to tree data and nodes
+- **Network Maintenance:** Automated integrity verification and healing
+- **Administrative Tools:** Manual integrity verification and reporting
+- **System Monitoring:** Integrity status reporting and alerting
 
-## Integration Points
-
-### Database Integration
-- **Page Data Access:** Reads page files for tree construction
-- **Denomination Support:** Works with all supported denominations
-- **File System Coordination:** Coordinates with database file organization
-- **Cache Independence:** Builds trees independently of page cache
-
-### Network Protocol Integration
-- **Command Handlers:** Provides hash data for network requests
-- **Synchronization Protocol:** Supports integrity verification protocol
-- **Error Reporting:** Consistent error codes for network operations
-- **Thread Safety:** Safe concurrent access for network operations
-
-### Configuration Integration
-- **Timing Parameters:** Configurable rebuild frequency
-- **Path Configuration:** Uses configured data directories
-- **Resource Limits:** Respects memory and CPU constraints
-- **Logging Configuration:** Integrated with system logging
+### Cross-File Dependencies
+- **Database Module:** Page file structure and access methods
+- **Network Module:** Inter-RAIDA communication protocols
+- **Configuration Module:** System settings and RAIDA server addresses
+- **Utilities Module:** Cryptographic hashing functions
 
 ## Threading and Concurrency
-- **Background Thread:** Continuous tree rebuilding operation
-- **Cache Mutex:** Global synchronization for cache access
-- **Thread Safety:** All operations are thread-safe
-- **Resource Management:** Proper cleanup in threaded environment
 
-## Mathematical Properties
-- **Binary Tree Structure:** Each node has at most 2 children
-- **Height Calculation:** Tree height is ceiling(log2(leaf_count))
-- **Node Indexing:** Array-based indexing for efficient access
-- **Hash Chaining:** Hierarchical hash dependency chain
+### Thread Safety Design
+- **Per-Denomination Locks:** Fine-grained locking prevents contention
+- **Cache Protection:** Tree cache protected by mutex arrays
+- **Background Processing:** Sync thread operates independently
+- **Safe Updates:** Tree updates use proper synchronization
 
-## Use Cases
+### Concurrent Operations
+- **Multiple Trees:** Different denominations processed concurrently
+- **Network Parallelism:** Multiple RAIDA servers contacted simultaneously
+- **Read-Write Separation:** Read operations don't block each other
 
-### Network Integrity Verification
-- **Consistency Checking:** Verify data consistency across servers
-- **Synchronization:** Efficient identification of differences
-- **Monitoring:** Continuous integrity monitoring
-- **Alerting:** Detection of data corruption or tampering
+## Administrative Interface
 
-### Recovery and Healing
-- **Validation:** Verify data integrity during recovery
-- **Consensus:** Support consensus mechanisms with integrity proofs
-- **Quality Assurance:** Confirm data integrity after operations
-- **Audit Trail:** Provide cryptographic proof of data state
+### Manual Control
+- **Enable/Disable:** Master switch in configuration file
+- **Frequency Control:** Configurable integrity checking intervals
+- **Debug Information:** Detailed logging of integrity operations
+- **Status Reporting:** Real-time integrity status visibility
 
-### Administrative Operations
-- **Health Monitoring:** System health through integrity checking
-- **Performance Metrics:** Integrity verification performance
-- **Troubleshooting:** Identify data inconsistencies
-- **Compliance:** Cryptographic proof of data integrity
+### Monitoring and Alerting
+- **Consensus Failures:** Alerts when local data differs from network
+- **Healing Operations:** Logging of all healing activities
+- **Performance Metrics:** Timing and efficiency measurements
+- **Network Health:** Visibility into RAIDA server connectivity
 
-This integrity system module provides comprehensive cryptographic data integrity verification for the RAIDA network, enabling efficient detection of inconsistencies and supporting network-wide data synchronization while maintaining security and performance.
+This integrity system provides comprehensive data verification and healing capabilities for the RAIDA network, ensuring consistent data across all servers while protecting against denial-of-service attacks and providing efficient recovery from data corruption or inconsistencies.
