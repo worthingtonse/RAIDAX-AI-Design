@@ -72,7 +72,7 @@ STATE_WANT_READ_HEADER → STATE_WANT_READ_BODY → STATE_PROCESSING → STATE_W
 | `encryption_denomination` | 8-bit Integer | Coin denomination for encryption key |
 | `encryption_sn` | 32-bit Integer | Coin serial number for encryption key |
 | `encryption_type` | Integer | Protocol encryption type identifier |
-| `encryption_an` | Byte Array[16] | Authentication number for encryption (128-bit) |
+| `encryption_an` | Byte Array[32] | Expanded to 32 bytes to safely hold a derived 256-bit key. For 128-bit operations, only the first 16 bytes are used. |
 | `request_nonce` | Byte Array[24] | Client-provided nonce (size varies by protocol) |
 | `response_nonce` | Byte Array[24] | Server-generated response nonce |
 | `output_size` | Integer | Size of response data |
