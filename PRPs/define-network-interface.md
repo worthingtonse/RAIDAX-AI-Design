@@ -1,317 +1,295 @@
-# Network Interface Header Definitions (net.h)
+# Network Header Definitions (net.h)
 
 ## Module Purpose
-This header file defines the complete interface for the high-performance, event-driven network layer supporting both TCP and UDP protocols. It establishes constants for performance tuning, security limits, timeout configurations, and declares all functions needed for connection management, event handling, and cross-thread communication in the RAIDA server network system.
+This header file defines the network interface constants, function declarations, and configuration parameters for the RAIDA network infrastructure. It provides the interface for high-performance asynchronous I/O operations, UDP performance optimizations, and cross-thread communication mechanisms.
 
+## Network Configuration Constants
 
+### Timeout and Performance Settings
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `RAIDA_EPOLL_TIMEOUT` | 10000 | Timeout for epoll_wait operations in milliseconds |
+| `MAXEPOLLSIZE` | 10000 | Maximum number of events that epoll can handle in its backlog |
+| `MAX_FDS` | 65535 | Maximum file descriptors to handle for connection tracking |
+| `MAX_BODY_SIZE` | 65536 | Maximum allowed body size for requests (64KB) to prevent memory exhaustion attacks |
+| `SOCKET_TIMEOUT` | 2 | Default socket read timeout in seconds |
 
-#### conn_info_t Required Fields (connection context)
-socketId: integer,                     // Socket file descriptor or ID
-  readBuffer: byte[],                   // Buffer for incoming data
-  readBufferLength: integer,            // Length of current read data
-  writeBuffer: byte[],                  // Buffer for outgoing response
-  writeBufferLength: integer,           // Length of data to send
-  state: string,                        // Connection state (e.g. "READ_HEADER", "READ_BODY")
-  clientAddress: string,               // Client IP address (for UDP/TCP)
-  createdAt: timestamp                  // Creation time for timeout tracking
+### Performance Optimization Constants
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `UDP_CI_POOL_SIZE` | 4096 | Number of pre-allocated connection info structures for UDP performance optimization |
 
+## Function Interface Specifications
 
-## Network Performance Constants
+### 1. Core Network Initialization
+**Function Name:** Initialize and Listen Sockets
 
-### Event System Configuration
-- **RAIDA_EPOLL_TIMEOUT:** 10000 milliseconds - Timeout for event notification system
-- **MAXEPOLLSIZE:** 10000 events - Maximum events that can be processed per wait operation
-- **MAX_FDS:** 65535 - Maximum file descriptors the system can handle simultaneously
+**Purpose:** Sets up complete network infrastructure including epoll instance, TCP/UDP listening sockets, and main event loop
 
-### Security and Resource Protection
-- **MAX_BODY_SIZE:** 65536 bytes (64KB) - Maximum allowed request body size to prevent memory exhaustion attacks
-- **SOCKET_TIMEOUT:** 2 seconds - Individual socket operation timeout
-
-## Function Interface Declarations
-
-### Main Network Functions
-
-#### `init_and_listen_sockets`
 **Parameters:** None
-**Returns:** Integer status code (0 for success, negative for error)
-**Purpose:** Initializes complete network infrastructure and runs main event loop until server shutdown
 
-**Functionality:**
-- Sets up event notification system (epoll on Linux)
-- Creates and configures TCP and UDP listening sockets
-- Implements main event processing loop
-- Handles graceful shutdown and resource cleanup
-- Manages cross-thread communication for write operations
+**Returns:** Integer (0 for success, -1 for failure)
 
-#### `init_tcp_socket`
+**Description:** Primary network initialization function that establishes the complete networking infrastructure for the RAIDA server, including event-driven I/O setup and cross-thread communication mechanisms.
+
+### 2. Socket Initialization Functions
+
+#### TCP Socket Initialization
+**Function Name:** Initialize TCP Socket
+
+**Purpose:** Creates and configures TCP listening socket with optimal settings
+
 **Parameters:** None
-**Returns:** Integer socket descriptor (negative on error)
-**Purpose:** Creates and configures TCP listening socket for client connections
 
-**Configuration Features:**
-- Non-blocking operation mode for event-driven processing
-- SO_REUSEADDR option for quick server restart capability
-- TCP keep-alive with customized parameters (60s idle, 10s interval, 5 probes)
-- Binding to configured port with maximum connection backlog
+**Returns:** Socket descriptor (integer, -1 on failure)
 
-#### `init_udp_socket`
+**Description:** Creates TCP listening socket with non-blocking mode, SO_REUSEADDR option, and proper binding configuration for RAIDA server operation.
+
+#### UDP Socket Initialization
+**Function Name:** Initialize UDP Socket
+
+**Purpose:** Creates and configures UDP socket for client communication and integrity protocol
+
 **Parameters:** None
-**Returns:** Integer socket descriptor (negative on error)
-**Purpose:** Creates and configures UDP socket for connectionless request processing
 
-**Configuration Features:**
-- Non-blocking mode for efficient event processing
-- Same port as TCP for dual-protocol support
-- Optimized for high-throughput connectionless operations
+**Returns:** Socket descriptor (integer, -1 on failure)
 
-### Socket Configuration Utilities
+**Description:** Creates UDP socket for datagram communication with non-blocking mode and proper binding for both client requests and integrity protocol operations.
 
-#### `set_nonblocking`
+#### UDP Connection Info Pool Initialization
+**Function Name:** Initialize UDP Connection Info Pool
+
+**Purpose:** Initializes object pool for UDP connection structures to optimize performance under high traffic
+
+**Parameters:** None
+
+**Returns:** Integer (0 for success, -1 for failure)
+
+**Description:** Sets up pre-allocated pool of connection info structures specifically for UDP operations, eliminating malloc/free overhead during high-traffic periods and improving overall network performance.
+
+### 3. Socket Configuration Functions
+
+#### Set Non-Blocking Mode
+**Function Name:** Set Non-Blocking
+
+**Purpose:** Configures socket for non-blocking operation essential for async I/O
+
 **Parameters:**
-- File descriptor (integer socket identifier)
+- File descriptor (integer)
 
-**Returns:** Integer status code (0 for success, negative for error)
-**Purpose:** Configures socket for non-blocking operation using system calls
+**Returns:** Integer (0 for success, -1 for failure)
 
-**Used By:**
-- TCP listening socket configuration
-- UDP socket configuration
-- Client connection setup
+**Description:** Modifies socket flags to enable non-blocking mode using fcntl operations, essential for event-driven network architecture.
 
-#### `set_blocking`
+#### Set Blocking Mode
+**Function Name:** Set Blocking
+
+**Purpose:** Converts socket back to blocking mode when needed for specific operations
+
 **Parameters:**
-- File descriptor (integer socket identifier)
+- File descriptor (integer)
 
-**Returns:** Integer status code (0 for success, negative for error)
-**Purpose:** Reverts socket to blocking mode for specific operations
+**Returns:** Integer (0 for success, -1 for failure)
 
-**Used By:**
-- External connections to other RAIDA servers
-- Synchronous operations requiring blocking behavior
+**Description:** Modifies socket flags to disable non-blocking mode, used for specialized operations that require blocking behavior.
 
-### Connection Management
+### 4. Connection Management Functions
 
-#### `alloc_ci`
-**Parameters:**
-- Socket descriptor (integer file descriptor)
+#### Allocate Connection Info
+**Function Name:** Allocate Connection Info
 
-**Returns:** Pointer to connection information structure (NULL on allocation failure)
 **Purpose:** Allocates and initializes connection information structure for new connections
 
-**Initialization Features:**
-- Complete structure zeroing for clean state
-- Socket descriptor assignment
-- Initial state configuration for header reading
-- Timestamp recording for performance monitoring
-- Buffer size configuration for protocol processing
-
-#### `free_ci`
 **Parameters:**
-- Connection information structure pointer
+- Socket descriptor (integer)
+
+**Returns:** Connection info pointer (NULL on failure)
+
+**Description:** Creates and initializes connection information structure with proper state management, buffer allocation, and timing setup for new TCP connections.
+
+#### Free Connection Info
+**Function Name:** Free Connection Info
+
+**Purpose:** Safely deallocates connection resources with differentiation between pooled and non-pooled structures
+
+**Parameters:**
+- Connection info pointer
 
 **Returns:** None
-**Purpose:** Frees all resources associated with a connection
 
-**Cleanup Responsibilities:**
-- Socket address structure deallocation (UDP connections)
-- Request body buffer cleanup
-- Response output buffer cleanup
-- Write buffer cleanup for TCP responses
-- Main connection structure deallocation
-- Null pointer safety handling
+**Description:** Properly frees connection resources, handling both regular TCP connections and UDP pooled structures differently to prevent resource leaks and maintain object pool integrity.
 
-### Event Handling Functions
+### 5. Connection Event Handlers
 
-#### `handle_new_tcp_connection`
+#### Handle New TCP Connection
+**Function Name:** Handle New TCP Connection
+
+**Purpose:** Accepts new TCP connections and integrates them into the event monitoring system
+
 **Parameters:**
 - TCP listening socket descriptor (integer)
 
 **Returns:** None
-**Purpose:** Accepts and configures new TCP connections with proper initialization
 
-**NOTE:** Header signature discrepancy - implementation doesn't use epoll_fd parameter declared in header
+**Description:** Processes new incoming TCP connections, configures them for non-blocking operation with keep-alive settings, and adds them to the epoll monitoring system for event-driven processing.
 
-**Process Features:**
-- Multiple connection acceptance per event notification
-- Client IP address extraction and logging
-- Connection information structure setup
-- Event system registration for new connections
-- Error handling with proper cleanup
+#### Handle UDP Request
+**Function Name:** Handle UDP Request
 
-#### `handle_udp_request`
+**Purpose:** Processes UDP datagrams including specialized handling for integrity protocol with object pool optimization
+
 **Parameters:**
 - UDP socket descriptor (integer)
 
 **Returns:** None
-**Purpose:** Processes incoming UDP datagrams with immediate response capability
 
-**NOTE:** Header signature discrepancy - implementation doesn't use epoll_fd parameter declared in header
+**Description:** Handles incoming UDP datagrams with optimized processing for integrity vote requests and regular client requests, utilizing object pool for performance and providing immediate response for integrity operations.
 
-**Process Features:**
-- Multiple datagram processing per event
-- Client address extraction for response routing
-- Immediate request processing (no thread pool delay)
-- Direct response transmission
-- Memory management for datagram buffers
+#### Handle Connection Event
+**Function Name:** Handle Connection Event
 
-#### `handle_connection_event`
+**Purpose:** Dispatches connection events to appropriate read/write handlers based on event type
+
 **Parameters:**
-- Connection information structure pointer
-- Event mask (32-bit unsigned integer indicating event types)
+- Connection info pointer
+- Event flags (32-bit integer)
 
 **Returns:** None
-**Purpose:** Routes connection events to appropriate read/write handlers
 
-**NOTE:** Header signature discrepancy - implementation doesn't use epoll_fd parameter declared in header
+**Description:** Central event dispatcher that routes epoll events to appropriate handlers based on event type (read, write, error) and current connection state.
 
-**Event Types Handled:**
-- EPOLLIN: Data available for reading
-- EPOLLOUT: Socket ready for writing
-- EPOLLERR/EPOLLHUP: Error conditions requiring connection cleanup
-- Invalid event combinations
+### 6. Cross-Thread Communication
 
-### Cross-Thread Communication
+#### Arm Socket for Write
+**Function Name:** Arm Socket for Write
 
-#### `arm_socket_for_write`
+**Purpose:** Thread-safe mechanism for worker threads to signal main I/O thread that connection is ready for writing
+
 **Parameters:**
-- Connection information structure pointer
+- Connection info pointer
 
 **Returns:** None
-**Purpose:** Signals main I/O thread that worker thread has completed request processing
 
-**Thread Context:** Called by worker threads after processing requests to notify I/O thread
+**Description:** Provides cross-thread communication mechanism using eventfd and modification queue to notify the main I/O thread when worker threads have prepared responses for transmission.
 
-**Functionality:**
-- Thread-safe queue management for write notifications
-- Event-based signaling to main I/O thread
-- Enables efficient cross-thread communication
-- Prevents busy-waiting or polling for write readiness
+## Network Architecture Design
 
-**Mechanism Detail:** Uses Linux `eventfd` (or cross-platform equivalent) to notify main thread of ready-to-write sockets. Worker threads enqueue the `conn_info_t (connection context)*` into a lock-free or mutex-protected queue and write to the eventfd. Main thread reads the eventfd and processes write-ready sockets.
+### Event-Driven Model
+- **Epoll-Based:** Uses Linux epoll for efficient event monitoring
+- **Edge-Triggered:** Configured for edge-triggered mode for maximum performance
+- **Non-Blocking I/O:** All socket operations are non-blocking to prevent thread blocking
+- **Cross-Thread Communication:** EventFD-based signaling between I/O and worker threads
 
+### Performance Optimizations
+- **UDP Object Pool:** Pre-allocated structures eliminate allocation overhead
+- **Connection Pooling:** Efficient reuse of connection structures
+- **Batch Processing:** Multiple events processed per epoll_wait call
+- **Zero-Copy Design:** Minimizes data copying where possible
 
-## Header File Signature Corrections
-
-### Implementation vs. Declaration Discrepancies
-**Important Note:** The header file contains function signatures that differ from the actual implementation:
-
-#### Affected Functions
-1. **`handle_new_tcp_connection`**
-   - Header declares: `handle_new_tcp_connection(int tsocket, int epoll_fd)`
-   - Implementation uses: `handle_new_tcp_connection(int tsocket)`
-
-2. **`handle_udp_request`**
-   - Header declares: `handle_udp_request(int usocket, int epoll_fd)`
-   - Implementation uses: `handle_udp_request(int usocket)`
-
-3. **`handle_connection_event`**
-   - Header declares: `handle_connection_event(conn_info_t *ci, int epoll_fd, uint32_t events)`
-   - Implementation uses: `handle_connection_event(conn_info_t *ci, uint32_t events)`
-
-#### Recommendation
-**Follow Implementation Signatures:** When implementing in other languages, use the actual function signatures from the implementation rather than the header declarations for these three functions.
-
-## Data Structure Dependencies
-
-### Required External Types
-- **Connection Information Structure:** Complete connection state management from protocol layer
-- **Socket Address Structures:** System network address types
-- **Event Mask Types:** 32-bit unsigned integer for event notification
-- **File Descriptor Types:** Integer types for socket management
-
-### Protocol Integration Requirements
-- Connection structure must include state management fields
-- Protocol header size constants for buffer management
-- Request/response processing integration points
-- Error code definitions for network operation failures
-
-## Performance and Scalability Features
-
-### Event-Driven Architecture
-- **Non-Blocking Operations:** All socket operations use non-blocking mode
-- **Edge-Triggered Events:** Minimal event notification overhead
-- **Batch Processing:** Multiple events processed per system call
-- **Efficient State Management:** Minimal overhead per connection
-
-### Resource Management
-- **Connection Limits:** MAX_FDS enforces system-wide connection limits
-- **Memory Limits:** MAX_BODY_SIZE prevents memory exhaustion attacks
-- **Timeout Management:** Automatic cleanup of stale connections
-- **File Descriptor Management:** Proper cleanup prevents descriptor exhaustion
-
-### Concurrency Support
-- **Single I/O Thread:** Main thread handles all network events
-- **Worker Thread Pool:** Request processing distributed across multiple threads
-- **Cross-Thread Communication:** Efficient signaling for write completion
-- **Lock-Free I/O:** Network operations don't require synchronization
+### Scalability Features
+- **High Connection Capacity:** Supports thousands of concurrent connections
+- **Memory Bounded:** All memory usage is bounded and controlled
+- **Thread-Safe Design:** Safe concurrent access from multiple threads
+- **Resource Management:** Automatic cleanup and resource tracking
 
 ## Security Considerations
 
-### Input Validation
-- **Request Size Limits:** MAX_BODY_SIZE prevents oversized requests
-- **Connection Limits:** Resource exhaustion prevention through connection caps
-- **Timeout Enforcement:** Prevents resource hoarding through timeouts
-- **Address Validation:** Client IP logging for security monitoring
+### Connection Security
+- **IP Address Logging:** All connections logged with source IP for security analysis
+- **Resource Limits:** Maximum connections and request sizes prevent exhaustion attacks
+- **Timeout Management:** Configurable timeouts prevent resource holding
+- **Keep-Alive Protection:** TCP keep-alive prevents stale connection accumulation
 
-### Resource Protection
-- **Memory Management:** Careful allocation and cleanup prevents memory leaks
-- **File Descriptor Protection:** Proper cleanup prevents descriptor exhaustion
-- **Error Handling:** Secure error responses prevent information leakage
-- **Buffer Overflow Protection:** Size validation prevents buffer overflows
+### Protocol Security
+- **Size Validation:** All request sizes validated before processing
+- **Format Validation:** Protocol headers validated before resource allocation
+- **DDoS Protection:** UDP object pool provides graceful degradation under attack
+- **Rate Limiting Ready:** Infrastructure supports connection and request rate limiting
 
-### Network Security
-- **Protocol Validation:** All requests validated before processing
-- **Connection Tracking:** Global tracking enables monitoring and control
-- **Rate Limiting Framework:** Foundation for implementing rate controls
-- **Audit Logging:** Connection events logged for security analysis
+### Memory Security
+- **Bounded Allocations:** All dynamic allocations have maximum size limits
+- **Pool Management:** Object pools prevent memory exhaustion
+- **Buffer Overflow Prevention:** Careful buffer management prevents overflows
+- **Resource Tracking:** All resources tracked for proper cleanup
 
-## Integration Dependencies
+## Integration Requirements
 
-### Required System APIs
-- **Event Notification:** Platform-specific event system (epoll on Linux)
-- **Socket Operations:** POSIX socket API for network operations
-- **Cross-Thread Signaling:** Platform event signaling (eventfd on Linux)
-- **Memory Management:** System allocation and deallocation functions
+### Required System Dependencies
+- **Linux Epoll:** Requires Linux epoll interface for event monitoring
+- **POSIX Threading:** Requires POSIX threading for synchronization
+- **Socket API:** Standard socket API for TCP/UDP operations
+- **EventFD:** Linux eventfd for cross-thread signaling
 
-### External Module Dependencies
-- **Protocol Layer:** Request/response validation, command processing
-- **Configuration System:** Network parameters, port configuration
-- **Thread Pool System:** Worker thread management for request processing
-- **Logging System:** Debug output, error reporting, security logging
-- **Statistics System:** Request counting, performance monitoring
+### Module Dependencies
+- **Protocol Module:** For request/response processing and validation
+- **Thread Pool:** For worker thread management and request processing
+- **Configuration Module:** For network settings and operational parameters
+- **Statistics Module:** For performance monitoring and metrics collection
 
-### Provided Interface
-- **Network Entry Point:** Primary server network initialization
-- **Connection Management:** Complete connection lifecycle handling
-- **Event Processing:** Efficient event-driven request handling
-- **Cross-Thread Communication:** Worker thread integration support
+### Integration Points
+- **Protocol Layer:** Provides network transport for all protocol operations
+- **Command Processing:** Network interface for all command handlers
+- **Integrity System:** Network communication for healing and consensus operations
+- **Administrative Interface:** Network access for management operations
 
-## Platform Abstraction Requirements
+## Performance Characteristics
 
-### Operating System Dependencies
-- **Event Systems:** Linux epoll, BSD kqueue, Windows IOCP equivalents
-- **Socket APIs:** POSIX socket operations with platform variations
-- **Signal Systems:** Cross-thread communication mechanisms
-- **File Descriptor Management:** Platform-specific FD handling
+### Throughput Optimization
+- **Event-Driven Architecture:** Scales to thousands of concurrent connections
+- **Non-Blocking Operations:** Prevents blocking on slow clients
+- **Batch Processing:** Efficient handling of multiple simultaneous events
+- **Hardware Utilization:** Optimized for modern multi-core systems
 
-### Portability Considerations
-- **Event Notification:** Abstract event system for cross-platform support
-- **Socket Configuration:** Platform-specific socket option handling
-- **Thread Communication:** Cross-platform signaling mechanisms
-- **Resource Limits:** Platform-appropriate resource limit handling
+### Latency Optimization
+- **Object Pool:** Eliminates allocation latency for UDP operations
+- **Direct Processing:** Integrity votes processed immediately without queuing
+- **Minimal Copying:** Reduces data copying overhead
+- **Efficient Buffering:** Optimal buffer sizes for typical request patterns
 
-## Error Handling Standards
+### Memory Efficiency
+- **Bounded Usage:** All memory usage is bounded and predictable
+- **Pool Management:** Object pools reduce memory fragmentation
+- **Automatic Cleanup:** Systematic resource cleanup prevents leaks
+- **Efficient Structures:** Compact data structures minimize memory overhead
 
-### Return Code Conventions
-- **Success Operations:** Return 0 for successful completion
-- **Error Conditions:** Return negative values for various error types
-- **Pointer Functions:** Return NULL on allocation or lookup failures
-- **Resource Cleanup:** All error paths include proper resource cleanup
+## Error Handling and Recovery
 
-### Error Recovery Strategies
-- **Connection Errors:** Automatic connection cleanup and resource reclamation
-- **System Errors:** Graceful handling of system call failures
-- **Memory Errors:** Safe degradation when memory allocation fails
-- **Protocol Errors:** Secure error responses before connection termination
+### Network Error Handling
+- **Connection Failures:** Graceful handling of network connectivity issues
+- **Socket Errors:** Proper handling of all socket error conditions
+- **Timeout Management:** Appropriate timeouts prevent resource starvation
+- **Resource Exhaustion:** Graceful degradation when limits reached
 
-This network interface header provides the complete foundation for implementing high-performance, scalable network communication in any programming language while maintaining the architectural integrity and security characteristics of the original RAIDA server design.
+### Memory Error Handling
+- **Allocation Failures:** Graceful handling of memory allocation failures
+- **Pool Exhaustion:** Safe handling when object pools are exhausted
+- **Buffer Management:** Prevention of buffer overflow and underflow conditions
+- **Resource Recovery:** Systematic recovery from resource shortage conditions
+
+### Protocol Error Handling
+- **Invalid Requests:** Proper rejection and cleanup of malformed requests
+- **Size Violations:** Enforcement of protocol size limits with appropriate responses
+- **State Violations:** Handling of invalid connection state transitions
+- **Security Violations:** Detection and response to potential security threats
+
+## Administrative and Monitoring Interface
+
+### Performance Monitoring
+- **Connection Statistics:** Real-time monitoring of active connections
+- **Throughput Metrics:** Request and response throughput measurements
+- **Error Statistics:** Comprehensive error tracking and reporting
+- **Resource Utilization:** Memory and socket usage monitoring
+
+### Configuration Control
+- **Dynamic Parameters:** Some network parameters adjustable at runtime
+- **Resource Limits:** Configurable limits for connections and resources
+- **Timeout Settings:** Adjustable timeout values for various operations
+- **Performance Tuning:** Parameters for optimizing performance characteristics
+
+### Debugging Support
+- **Connection Tracking:** Detailed tracking of connection lifecycle
+- **Event Logging:** Comprehensive logging of network events
+- **Performance Profiling:** Timing information for performance analysis
+- **State Monitoring:** Visibility into connection and system state
+
+This network header provides the complete interface specification for high-performance, scalable network operations in the RAIDA system, supporting both TCP and UDP protocols with advanced performance optimizations, security features, and comprehensive error handling capabilities.

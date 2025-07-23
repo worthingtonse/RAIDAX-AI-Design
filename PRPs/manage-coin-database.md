@@ -1,17 +1,24 @@
-
-# On-Demand Page Cache Database System (db.c)
+# On-Demand Page Cache Database System (db)
 
 ## Module Purpose
-This module implements a high-performance on-demand page caching database system for RAIDA coin storage, replacing traditional full-memory loading with intelligent caching. It provides thread-safe page access, LRU-based cache management, background persistence, page reservation systems, and efficient coin data management while minimizing memory usage through selective loading.
+This module implements a high-performance on-demand page cache database layer for RAIDA coin storage. It provides dramatic memory usage reduction through intelligent caching, thread-safe concurrent access, automatic persistence, and efficient page management. The system eliminates the need to keep all coin data in memory while maintaining high performance through strategic caching.
 
 ## Constants and Configuration
+
+### Cache Management
 | Constant | Value | Description |
 |----------|-------|-------------|
-| `MAX_CACHED_PAGES` | 1000 | Maximum number of pages kept in RAM simultaneously |
-| `HASH_TABLE_SIZE` | 2048 | Hash table size for cache lookups (should be prime) |
-| `RECORDS_PER_PAGE` | Variable | Number of coin records per database page |
+| `MAX_CACHED_PAGES` | 1000 | Maximum number of pages kept in memory cache |
+| `HASH_TABLE_SIZE` | 2048 | Size of hash table for cache lookup (prime number for distribution) |
+| `RECORDS_PER_PAGE` | Variable | Number of coin records stored per page file |
+| `RESERVED_PAGE_RELEASE_SECONDS` | Variable | Timeout for page reservations in seconds |
+
+### Database Structure
+| Constant | Value | Description |
+|----------|-------|-------------|
 | `TOTAL_PAGES` | Variable | Total number of pages per denomination |
-| `RESERVED_PAGE_RELEASE_SECONDS` | Variable | Timeout for automatic page reservation release |
+| `MIN_DENOMINATION` | Variable | Minimum supported denomination value |
+| `MAX_DENOMINATION` | Variable | Maximum supported denomination value |
 | `DENOMINATION_OFFSET` | Variable | Offset for denomination index calculations |
 
 ## Data Structures
@@ -19,13 +26,13 @@ This module implements a high-performance on-demand page caching database system
 ### Page Structure
 | Field | Type | Description |
 |-------|------|-------------|
-| `denomination` | 8-bit Integer | Coin denomination for this page |
-| `no` | 16-bit Integer | Page number within denomination |
-| `data[RECORDS_PER_PAGE * 17]` | Byte Array | Coin records (16-byte AN + 1-byte MFS each) |
-| `is_dirty` | Boolean | Flag indicating page needs persistence |
-| `reserved_at` | Timestamp | When page was reserved (0 = not reserved) |
+| `data` | Byte Array[RECORDS_PER_PAGE × 17] | Raw coin record data (16-byte AN + 1-byte MFS) |
+| `denomination` | 8-bit Integer | Denomination this page belongs to |
+| `no` | 16-bit Integer | Page number within the denomination |
+| `is_dirty` | Boolean | Flag indicating page has unsaved changes |
+| `reserved_at` | Timestamp | Time when page was reserved (0 if not reserved) |
 | `reserved_by` | 32-bit Integer | Session ID that reserved this page |
-| `mtx` | Mutex | Page-specific lock for thread safety |
+| `mtx` | Mutex | Thread safety lock for page operations |
 | `prev` | Page Pointer | Previous page in LRU list |
 | `next` | Page Pointer | Next page in LRU list |
 
@@ -33,34 +40,17 @@ This module implements a high-performance on-demand page caching database system
 | Field | Type | Description |
 |-------|------|-------------|
 | `page` | Page Pointer | Pointer to cached page |
-| `key` | 32-bit Integer | Cache key (denomination << 16) | page_number |
+| `key` | 32-bit Integer | Cache key (denomination index << 16 | page number) |
 | `next` | Cache Entry Pointer | Next entry in hash table chain |
 
-### Coin Record Format (17 bytes per record)
-| Field | Size | Description |
+### Cache Management State
+| Field | Type | Description |
 |-------|------|-------------|
-| Authentication Number | 16 bytes | Unique coin identifier/ownership proof |
-| MFS (Months From Start) | 1 byte | Coin status/timestamp (0 = available) |
-
-###  Denomination Enumeration
-
-The system supports 15 distinct denominations representing different coin values:
-
-DEN_0_00000001 = -8 (0.00000001)
-DEN_0_0000001 = -7 (0.0000001)
-DEN_0_000001 = -6 (0.000001)
-DEN_0_00001 = -5 (0.00001)
-DEN_0_0001 = -4 (0.0001)
-DEN_0_001 = -3 (0.001)
-DEN_0_01 = -2 (0.01)
-DEN_0_1 = -1 (0.1)
-DEN_1 = 0 (1)
-DEN_10 = 1 (10)
-DEN_100 = 2 (100)
-DEN_1000 = 3 (1000)
-DEN_10000 = 4 (10000)
-DEN_100000 = 5 (100000)
-DEN_1000000 = 6 (1000000)
+| `page_cache_hash_table` | Cache Entry Pointer Array[HASH_TABLE_SIZE] | Hash table for O(1) page lookup |
+| `lru_head` | Page Pointer | Most recently used page in LRU list |
+| `lru_tail` | Page Pointer | Least recently used page in LRU list |
+| `cached_pages_count` | Integer | Current number of pages in cache |
+| `cache_mutex` | Mutex | Global cache structure protection |
 
 ## Core Functionality
 
@@ -69,27 +59,32 @@ DEN_1000000 = 6 (1000000)
 
 **Returns:** Integer (0 for success, -1 for failure)
 
-**Purpose:** Initializes the on-demand page cache system, creates necessary directory structures, and starts background persistence threads.
+**Purpose:** Initializes the complete database system including cache structures, page file validation, and background persistence thread.
 
 **Process:**
 1. **Cache Initialization:**
-   - Initializes hash table for cache lookups
-   - Sets up LRU list pointers
-   - Initializes cache statistics and counters
+   - Initializes hash table to all NULL entries
+   - Sets up LRU list pointers (head and tail to NULL)
+   - Initializes cache statistics and mutex
 
-2. **Directory Structure Creation:**
-   - Creates directory hierarchy for all denominations
-   - Ensures page files exist or creates them with default data
-   - Validates file system permissions and accessibility
+2. **Page File Validation:**
+   - Iterates through all denominations (MIN_DENOMINATION to MAX_DENOMINATION)
+   - For each denomination, validates all page files exist
+   - Creates missing page files with default coin data using random seed
+   - Ensures complete file system structure integrity
 
 3. **Background Thread Startup:**
    - Launches persistence and eviction thread
-   - Configures thread for background operation
-   - Establishes thread cleanup and shutdown procedures
+   - Thread handles periodic dirty page synchronization
+   - Configures thread for continuous background operation
 
-**Used By:** Server initialization, system startup
+4. **System Readiness:**
+   - Logs successful initialization
+   - Database ready for concurrent page access
 
-**Dependencies:** File system access, threading system
+**Used By:** Server initialization
+
+**Dependencies:** File system, threading system, configuration
 
 ### 2. Get Page by Serial Number with Lock (`get_page_by_sn_lock`)
 **Parameters:**
@@ -98,41 +93,49 @@ DEN_1000000 = 6 (1000000)
 
 **Returns:** Locked page pointer (NULL on failure)
 
-**Purpose:** Primary interface for accessing coin data with automatic cache management, lazy loading, and thread-safe locking.
+**Purpose:** Main page access function that provides thread-safe access to coin pages through intelligent caching with automatic eviction and loading.
 
 **Process:**
-1. **Cache Key Calculation:**
-   - Calculates page number from serial number
-   - Constructs cache key from denomination and page number
-   - Prepares for hash table lookup
+1. **Page Identification:**
+   - Calculates page number from serial number (sn / RECORDS_PER_PAGE)
+   - Generates cache key from denomination index and page number
+   - Prepares for cache lookup operation
 
-2. **Cache Lookup:**
-   - Searches hash table for existing cached page
-   - If found (cache hit):
-     - Moves page to front of LRU list
-     - Locks page for caller use
-     - Returns locked page pointer
+2. **Cache Access (Under Global Lock):**
+   - Acquires cache mutex for thread-safe access
+   - Performs hash table lookup for existing cached page
+   - If found: moves page to front of LRU list and updates access order
 
 3. **Cache Miss Handling:**
-   - Checks if cache is full (≥ MAX_CACHED_PAGES)
-   - If full, evicts least recently used page
-   - Loads page from disk storage
-   - Adds new page to cache and LRU list
+   - If page not in cache and cache full: identifies LRU victim for eviction
+   - Removes victim from cache structures (hash table and LRU list)
+   - Loads requested page from disk into memory
+   - Adds new page to cache and LRU list front
 
-4. **Thread Safety:**
-   - Acquires cache-wide mutex for cache operations
-   - Acquires page-specific mutex for caller
-   - Returns locked page to ensure exclusive access
+4. **Critical Race Condition Fix:**
+   - Releases global cache mutex BEFORE handling evicted page
+   - Handles dirty page synchronization outside global lock
+   - Prevents deadlock between cache mutex and page mutex
+
+5. **Page Lock Acquisition:**
+   - Locks the individual page mutex before returning
+   - Ensures caller has exclusive access to page data
+   - Page remains locked until caller explicitly unlocks
 
 **Performance Features:**
-- **O(1) Average Lookup:** Hash table provides constant-time cache lookups
-- **LRU Efficiency:** Most recently used pages remain available
-- **Lazy Loading:** Only requested pages loaded into memory
-- **Cache Eviction:** Automatic cleanup when memory limits reached
+- **O(1) Cache Lookup:** Hash table provides constant-time access
+- **LRU Management:** Automatic eviction of least recently used pages
+- **Lock Ordering:** Prevents deadlocks through proper lock acquisition order
+- **Memory Bounds:** Cache size limits prevent memory exhaustion
 
-**Used By:** All coin access operations, authentication, ownership transfer
+**Thread Safety:**
+- **Two-Level Locking:** Global cache mutex + individual page mutexes
+- **Deadlock Prevention:** Careful lock ordering and release timing
+- **Race Condition Prevention:** Fixed critical race in eviction logic
 
-**Dependencies:** File system for page loading, cache management
+**Used By:** All coin data access operations
+
+**Dependencies:** File system, hash table, LRU management
 
 ### 3. Unlock Page (`unlock_page`)
 **Parameters:**
@@ -140,15 +143,20 @@ DEN_1000000 = 6 (1000000)
 
 **Returns:** None
 
-**Purpose:** Releases page-specific lock after operations are complete, enabling other threads to access the page.
+**Purpose:** Releases page lock after operations are complete, enabling other threads to access the page.
 
 **Process:**
-1. **Lock Release:**
+1. **Validation:**
+   - Checks page pointer is not NULL
+   - Ensures safe operation
+
+2. **Lock Release:**
    - Releases page-specific mutex
-   - Allows other threads to access page
-   - Maintains cache consistency
+   - Allows other threads to acquire page lock
 
 **Used By:** All functions that acquire page locks
+
+**Dependencies:** Threading system
 
 ### 4. Persistence and Eviction Thread (`persistence_and_eviction_thread`)
 **Parameters:**
@@ -156,309 +164,465 @@ DEN_1000000 = 6 (1000000)
 
 **Returns:** Thread result
 
-**Purpose:** Background thread that periodically saves dirty pages to disk and manages cache eviction to maintain system responsiveness.
+**Purpose:** Background thread that periodically synchronizes dirty pages to disk with fixed race condition prevention.
 
 **Process:**
-1. **Periodic Operation:**
+1. **Periodic Cycle:**
    - Sleeps for configured flush frequency
-   - Wakes up to perform maintenance tasks
+   - Wakes up to perform dirty page synchronization
    - Continues until system shutdown
 
-2. **Dirty Page Synchronization:**
-   - Scans all cached pages for dirty flag
-   - Writes modified pages to disk storage
-   - Clears dirty flag after successful write
-   - Counts and reports synchronization statistics
+2. **Critical Race Condition Fix - Step 1:**
+   - Acquires global cache mutex
+   - Builds list of dirty pages while holding lock
+   - Copies page pointers to local array (up to MAX_CACHED_PAGES)
+   - Releases global cache mutex BEFORE starting I/O operations
 
-3. **Cache Management:**
-   - Monitors cache size and usage patterns
-   - Manages eviction decisions based on LRU policy
-   - Ensures cache stays within memory limits
+3. **Critical Race Condition Fix - Step 2:**
+   - Processes identified dirty pages one by one
+   - Each page sync operation uses page-specific mutex
+   - No global cache lock held during slow disk I/O
+   - Prevents deadlock with page access operations
+
+4. **Page Synchronization:**
+   - For each dirty page: calls sync_page function
+   - sync_page handles individual page locking internally
+   - Marks pages as clean after successful write
+   - Logs synchronization activity for debugging
 
 **Performance Features:**
-- **Asynchronous Persistence:** Doesn't block main operations
-- **Batch Writes:** Efficient disk I/O through batched operations
-- **Memory Management:** Prevents cache from consuming excessive memory
+- **Deadlock Prevention:** Fixed critical race condition in lock ordering
+- **I/O Efficiency:** Batches dirty page synchronization
+- **Non-Blocking:** Doesn't block page access during sync operations
 
-**Used By:** Background system maintenance
+**Used By:** Background maintenance
 
-**Dependencies:** File system for persistence, configuration for timing
+**Dependencies:** File system, timing functions
 
 ### 5. Cache Management Functions
 
-#### Add to Cache (`cache_add`)
+#### LRU Move to Front (`lru_move_to_front`)
+**Parameters:**
+- Page pointer
+
+**Returns:** None (static function)
+
+**Purpose:** Moves accessed page to front of LRU list to reflect recent usage.
+
+**Process:**
+1. **Early Exit:**
+   - If page is already at head, no operation needed
+   - Optimizes for common case
+
+2. **List Manipulation:**
+   - Removes page from current position in doubly-linked list
+   - Updates previous and next pointers of neighboring pages
+   - Handles special cases (tail page, middle page)
+
+3. **Front Insertion:**
+   - Inserts page at front of LRU list
+   - Updates head pointer and neighboring page links
+   - Maintains list integrity
+
+**Used By:** Cache lookup operations
+
+**Dependencies:** None (self-contained)
+
+#### Cache Add (`cache_add`)
 **Parameters:**
 - Cache key (32-bit integer)
 - Page pointer
 
-**Returns:** None
+**Returns:** None (static function)
 
-**Purpose:** Adds newly loaded page to cache hash table and LRU list.
+**Purpose:** Adds new page to both hash table and LRU list structures.
 
 **Process:**
 1. **Hash Table Insertion:**
-   - Calculates hash table index from cache key
-   - Creates new cache entry
-   - Links entry into hash table chain
+   - Calculates hash index from cache key
+   - Creates new cache entry structure
+   - Inserts at head of hash chain (most recent first)
 
-2. **LRU List Management:**
-   - Adds page to front of LRU list (most recently used)
-   - Updates LRU list pointers
-   - Increments cached page counter
+2. **LRU List Insertion:**
+   - Adds page to front of LRU list
+   - Updates head and tail pointers as needed
+   - Maintains doubly-linked list integrity
+
+3. **Statistics Update:**
+   - Increments cached page count
+   - Updates cache utilization metrics
+
+**Used By:** Page loading operations
+
+**Dependencies:** Memory allocation
 
 #### Cache Lookup (`cache_lookup`)
 **Parameters:**
 - Cache key (32-bit integer)
 
-**Returns:** Page pointer (NULL if not found)
+**Returns:** Page pointer (NULL if not found, static function)
 
-**Purpose:** Searches cache hash table for requested page.
+**Purpose:** Performs fast hash table lookup for cached pages.
 
 **Process:**
 1. **Hash Calculation:**
-   - Calculates hash table index
-   - Searches hash table chain for matching key
+   - Calculates hash index from cache key
+   - Accesses appropriate hash table bucket
 
-2. **Key Comparison:**
-   - Compares cache keys for exact match
+2. **Chain Traversal:**
+   - Iterates through hash chain for matching key
    - Returns page pointer if found
+   - Returns NULL if not found in chain
 
-#### Cache Eviction (`cache_evict`)
+**Performance:** O(1) average case, O(n) worst case for hash collisions
+
+**Used By:** Page access operations
+
+**Dependencies:** None (self-contained)
+
+#### Cache Evict and Get Victim (`cache_evict_and_get_victim`)
 **Parameters:** None
 
-**Returns:** None
+**Returns:** Evicted page pointer (NULL if cache empty, static function)
 
-**Purpose:** Removes least recently used page from cache to free memory.
+**Purpose:** Selects LRU victim page, removes from cache structures, and returns for handling.
 
 **Process:**
-1. **LRU Selection:**
-   - Selects page from tail of LRU list (least recently used)
-   - Checks if page needs persistence before eviction
+1. **Victim Selection:**
+   - Selects least recently used page (LRU tail)
+   - Logs eviction for debugging
+   - Handles empty cache case
 
-2. **Persistence Check:**
-   - If page is dirty, writes to disk before eviction
-   - Ensures no data loss during eviction
+2. **LRU List Removal:**
+   - Removes victim from tail of LRU list
+   - Updates tail pointer and neighboring links
+   - Maintains list integrity
 
-3. **Cache Removal:**
-   - Removes page from hash table
-   - Removes from LRU list
-   - Frees page memory
-   - Decrements cached page counter
+3. **Hash Table Removal:**
+   - Calculates victim's hash index
+   - Traverses hash chain to find entry
+   - Removes entry and frees chain node
+   - Updates hash table structure
 
-### 6. Page Loading from Disk (`load_page_from_disk`)
+4. **Statistics Update:**
+   - Decrements cached page count
+   - Updates cache utilization metrics
+
+**Critical Design:** Must be called while holding cache_mutex
+
+**Used By:** Cache full scenarios during page loading
+
+**Dependencies:** Hash table management
+
+### 6. Disk I/O Operations
+
+#### Load Page from Disk (`load_page_from_disk`)
 **Parameters:**
 - Denomination (8-bit integer)
 - Page number (16-bit integer)
 
-**Returns:** Page pointer (NULL on failure)
+**Returns:** Page pointer (NULL on failure, static function)
 
-**Purpose:** Loads page data from disk storage into memory with complete initialization.
+**Purpose:** Loads page data from disk file into memory structure.
 
 **Process:**
 1. **File Path Construction:**
-   - Builds hierarchical file path from denomination and page number
-   - Uses MSB-based directory structure for organization
+   - Builds hierarchical path: Data/[den]/[msb]/[page].bin
+   - Uses page MSB (most significant byte) for directory organization
+   - Provides scalable file system structure
 
-2. **File System Access:**
+2. **File Access:**
    - Opens page file in read-only mode
+   - Handles file not found and access errors
+   - Validates file descriptor
+
+3. **Data Loading:**
    - Reads complete page data (RECORDS_PER_PAGE × 17 bytes)
-   - Handles file system errors gracefully
+   - Validates read operation success
+   - Ensures complete data transfer
 
-3. **Page Initialization:**
-   - Allocates memory for page structure
-   - Initializes page metadata (denomination, number, flags)
-   - Initializes page-specific mutex
-   - Sets up LRU list pointers
+4. **Page Structure Initialization:**
+   - Allocates page structure in memory
+   - Initializes denomination, page number, and flags
+   - Sets up page mutex and LRU pointers
+   - Marks page as clean (not dirty)
 
-**Used By:** Cache miss handling, page loading operations
+**Used By:** Cache miss handling
 
-**Dependencies:** File system access, memory management
+**Dependencies:** File system operations
 
-## Page Reservation System
+#### Sync Page (`sync_page`)
+**Parameters:**
+- Page pointer
 
-### Reserve Page (`reserve_page`)
+**Returns:** None
+
+**Purpose:** Writes page data to disk with proper thread safety and race condition prevention.
+
+**Process:**
+1. **File Path Construction:**
+   - Builds hierarchical path from page denomination and number
+   - Uses same directory structure as loading
+
+2. **Critical Race Condition Fix:**
+   - Acquires page-specific mutex BEFORE file operations
+   - Prevents torn writes and data corruption
+   - Ensures atomic page synchronization
+
+3. **File Write Operation:**
+   - Opens page file in write-only mode
+   - Writes complete page data atomically
+   - Validates write operation success
+
+4. **Lock Release:**
+   - Releases page mutex after write completion
+   - Enables other threads to access page
+   - Handles error cases with proper cleanup
+
+**Thread Safety:** Fixed critical race condition through proper mutex usage
+
+**Used By:** Persistence thread, eviction operations
+
+**Dependencies:** File system operations
+
+### 7. Page File Management
+
+#### Initialize Page (`init_page`)
+**Parameters:**
+- Seed (integer)
+- Denomination (8-bit integer)
+- Page number (integer)
+
+**Returns:** Integer (0 for success, -1 for failure)
+
+**Purpose:** Creates page file with default coin data if it doesn't exist.
+
+**Process:**
+1. **Directory Structure:**
+   - Creates hierarchical directory structure if needed
+   - Uses denomination and page MSB for organization
+   - Handles directory creation errors gracefully
+
+2. **File Existence Check:**
+   - Checks if page file already exists
+   - Returns success immediately if file present
+   - Only creates new files when necessary
+
+3. **Default Data Generation:**
+   - Generates default authentication numbers using legacy MD5 hash
+   - Uses seed, denomination, page number, and record index as input
+   - Creates deterministic but unpredictable default data
+   - Sets MFS (months from start) to 0 for new coins
+
+4. **File Creation:**
+   - Writes complete page data in single operation
+   - Validates write operation success
+   - Sets appropriate file permissions
+
+**Used By:** Database initialization
+
+**Dependencies:** File system, cryptographic functions
+
+### 8. Page Reservation System
+
+#### Reserve Page (`reserve_page`)
 **Parameters:**
 - Page pointer
 - Session ID (32-bit integer)
 
 **Returns:** None
 
-**Purpose:** Reserves page for exclusive access by specific session, preventing concurrent modifications.
+**Purpose:** Reserves page for exclusive access by specific session to prevent conflicts during multi-page operations.
 
 **Process:**
 1. **Reservation Setup:**
-   - Records session ID as page owner
-   - Sets reservation timestamp
+   - Sets reserved_by field to session ID
+   - Records current timestamp in reserved_at
    - Logs reservation for debugging
 
-### Check Page Reservation (`page_is_reserved`)
+2. **Session Association:**
+   - Associates page with specific client session
+   - Enables session-based page management
+   - Supports multi-page transaction safety
+
+**Used By:** Executive operations, multi-page transactions
+
+**Dependencies:** Timing functions
+
+#### Page Is Reserved (`page_is_reserved`)
 **Parameters:**
 - Page pointer
 
-**Returns:** Boolean (true if reserved)
+**Returns:** Integer (1 if reserved, 0 if not reserved)
 
 **Purpose:** Checks if page is currently reserved and handles automatic timeout.
 
 **Process:**
-1. **Reservation Status Check:**
-   - Checks if page has active reservation
-   - Calculates time since reservation
-   - Automatically releases expired reservations
+1. **Reservation Check:**
+   - Checks if page has reservation timestamp and session ID
+   - Returns 0 immediately if no reservation
 
 2. **Timeout Handling:**
-   - Compares elapsed time with timeout threshold
-   - Calls release function for expired reservations
-   - Returns current reservation status
+   - Calculates time since reservation
+   - Compares against configured timeout value
+   - Automatically releases expired reservations
 
-### Release Reserved Page (`release_reserved_page`)
+3. **Status Return:**
+   - Returns 1 if page is actively reserved
+   - Returns 0 if not reserved or reservation expired
+
+**Used By:** Page access validation
+
+**Dependencies:** Timing functions
+
+#### Release Reserved Page (`release_reserved_page`)
 **Parameters:**
 - Page pointer
 
 **Returns:** None
 
-**Purpose:** Manually releases page reservation, making page available for other sessions.
+**Purpose:** Manually releases page reservation before timeout.
 
 **Process:**
 1. **Reservation Cleanup:**
-   - Clears session ID
-   - Resets reservation timestamp
+   - Clears reserved_by session ID (sets to 0)
+   - Clears reserved_at timestamp (sets to 0)
    - Logs release for debugging
 
-## File System Integration
+**Used By:** Session cleanup, explicit release operations
 
-### Initialize Page (`init_page`)
-**Parameters:**
-- Random seed (integer)
-- Denomination (8-bit integer)  
-- Page number (integer)
+**Dependencies:** None
 
-**Returns:** Integer (0 for success, -1 for failure)
+### 9. Denomination Index Utilities
 
-**Purpose:** Creates page file on disk with default authentication numbers if it doesn't exist.
-
-**Process:**
-1. **File Existence Check:**
-   - Checks if page file already exists
-   - Returns success if file present
-
-2. **Directory Creation:**
-   - Creates MSB-based directory structure if needed
-   - Handles directory creation errors
-
-3. **Default Content Generation:**
-   - Generates default authentication numbers using legacy MD5 hash
-   - Creates deterministic but unique content for each coin slot
-   - Sets all MFS values to 0 (available)
-
-4. **File Creation:**
-   - Writes page content to disk file
-   - Validates write operation success
-
-**Security Features:**
-- **Deterministic Generation:** Uses seed and position for reproducible content
-- **Legacy Compatibility:** Uses MD5 for default ANs to maintain compatibility
-
-### Synchronize Page (`sync_page`)
-**Parameters:**
-- Page pointer
-
-**Returns:** None
-
-**Purpose:** Writes page content to disk storage, ensuring data persistence.
-
-**Process:**
-1. **File Path Construction:**
-   - Builds complete file path from page metadata
-   - Uses hierarchical directory structure
-
-2. **Atomic Write:**
-   - Opens file in write-only mode
-   - Writes complete page content
-   - Validates write completion
-
-3. **Error Handling:**
-   - Logs write errors for debugging
-   - Ensures data integrity through validation
-
-## Utility Functions
-
-### Get Denomination Index (`get_den_idx`)
+#### Get Denomination Index (`get_den_idx`)
 **Parameters:**
 - Denomination (8-bit integer)
 
-**Returns:** Denomination index (integer)
+**Returns:** Integer denomination index
 
-**Purpose:** Converts denomination value to array index for internal use.
+**Purpose:** Converts signed denomination to array index for internal use.
 
-### Get Denomination by Index (`get_den_by_idx`)
+**Process:**
+1. **Index Calculation:**
+   - Adds DENOMINATION_OFFSET to handle negative denominations
+   - Converts signed denomination to positive array index
+   - Enables array-based denomination storage
+
+**Used By:** All denomination-based operations
+
+**Dependencies:** None
+
+#### Get Denomination by Index (`get_den_by_idx`)
 **Parameters:**
 - Denomination index (integer)
 
-**Returns:** Denomination (8-bit integer)
+**Returns:** 8-bit signed integer denomination
 
-**Purpose:** Converts array index back to denomination value.
+**Purpose:** Converts array index back to signed denomination value.
+
+**Process:**
+1. **Denomination Calculation:**
+   - Subtracts DENOMINATION_OFFSET from index
+   - Converts positive array index to signed denomination
+   - Enables reverse lookup from index to denomination
+
+**Used By:** All index-based denomination operations
+
+**Dependencies:** None
+
+
+### Page File Format
+- **Fixed Size:** Each page file is exactly RECORDS_PER_PAGE × 17 bytes
+- **Binary Format:** Direct binary storage for efficiency
+- **Record Structure:** 16-byte authentication number + 1-byte MFS (months from start)
+- **No Headers:** Raw coin record data for minimal overhead
+- **Atomic Writes:** Complete page writes ensure consistency
+
+### Directory Management
+- **Lazy Creation:** Directories created as needed for coins
+- **MSB Organization:** High-order page bits determine directory
+- **Scalable Structure:** Structure scales to large page counts
+- **File System Compatibility:** Works with standard file systems
+
+## Threading and Concurrency Design
+
+### Multi-Level Locking Strategy
+- **Global Cache Mutex:** Protects cache data structures during modification
+- **Individual Page Mutexes:** Fine-grained locks for page-specific operations
+- **LRU List Protection:** Cache mutex protects LRU list modifications
+- **Hash Table Protection:** Cache mutex protects hash table operations
+
+### Lock Ordering and Deadlock Prevention
+- **Consistent Ordering:** Always acquire cache mutex before page mutexes when both needed
+- **Brief Critical Sections:** Cache mutex held only for cache structure operations
+- **Long-Term Locks:** Page mutexes held for duration of coin operations
+- **Automatic Release:** Page locks automatically released by callers
+
+### Thread-Safe Operations
+- **Atomic Cache Updates:** Cache modifications are atomic operations
+- **Safe Eviction:** Eviction process coordinates with active operations
+- **Reservation Safety:** Page reservations work correctly with concurrent access
+- **Background Safety:** Persistence thread operates safely with active cache
+
+### Critical Race Condition Fixes
+- **Eviction Race Fix:** Victim page handling moved outside global cache lock
+- **Persistence Race Fix:** Dirty page identification separated from synchronization
+- **Page Sync Race Fix:** Individual page locks prevent torn writes
+
+## Cache Performance Optimization
+
+### Hash Table Design
+- **Prime Table Size:** HASH_TABLE_SIZE uses prime number to reduce clustering
+- **Chaining Resolution:** Simple chaining handles hash collisions
+- **Load Factor Management:** Cache size limits maintain reasonable load factors
+- **Key Distribution:** Cache keys designed for good hash distribution
+
+### LRU List Efficiency
+- **O(1) Operations:** All LRU operations are constant time
+- **Doubly-Linked List:** Efficient insertion and removal operations
+- **Cache Hit Optimization:** Recently used pages moved to front efficiently
+- **Eviction Efficiency:** LRU victim selection is immediate
+
+### Memory Access Patterns
+- **Locality of Reference:** Cached pages improve temporal locality
+- **Reduced I/O:** Cache hits eliminate disk access
+- **Prefetch Opportunities:** Sequential access patterns benefit from caching
+- **Working Set Management:** Cache size tuned for typical working sets
 
 ## Performance Characteristics
 
-### Memory Efficiency
-- **Selective Loading:** Only accessed pages loaded into memory
-- **LRU Management:** Most useful pages remain cached
-- **Bounded Memory:** Maximum cache size prevents memory exhaustion
-- **Efficient Eviction:** Least useful pages removed first
+### Memory Usage Reduction
+- **Dramatic Savings:** Reduces memory usage from GBs to MBs
+- **Bounded Usage:** Maximum memory usage controlled by MAX_CACHED_PAGES
+- **Efficient Caching:** Only frequently accessed pages kept in memory
+- **Automatic Management:** No manual memory management required
 
-### I/O Optimization
-- **Lazy Loading:** Pages loaded only when needed
-- **Batched Persistence:** Dirty pages written in batches
-- **Async Operations:** Background thread handles disk I/O
-- **Cache Hits:** Frequent accesses served from memory
+### Access Performance
+- **Cache Hit Performance:** O(1) access time for cached pages
+- **Cache Miss Performance:** Single disk read plus cache insertion
+- **Sequential Access:** Good performance for sequential page access
+- **Random Access:** Hash table provides efficient random access
 
-### Concurrency Performance
-- **Fine-Grained Locking:** Page-level locks minimize contention
-- **Cache-Level Locking:** Brief cache locks for management operations
-- **Parallel Access:** Multiple threads can access different pages
-- **Lock-Free Reads:** Cache lookups use minimal locking
-
-## Security Considerations
-
-### Data Integrity
-- **Atomic Operations:** Page modifications are atomic
-- **Consistent State:** Cache eviction ensures data persistence
-- **Validation:** File operations validated for correctness
-
-### Access Control
-- **Reservation System:** Prevents concurrent modifications
-- **Session Isolation:** Reservations tied to specific sessions
-- **Timeout Protection:** Automatic release prevents deadlocks
-
-### Thread Safety
-- **Mutex Protection:** All cache operations protected by mutexes
-- **Page Locking:** Individual pages locked for exclusive access
-- **Safe Eviction:** Eviction process handles concurrent access safely
-
-## Error Handling and Recovery
-
-### File System Errors
-- **Missing Files:** Graceful handling of non-existent pages
-- **Permission Errors:** Proper error reporting for access issues
-- **Disk Full:** Handling of disk space exhaustion
-
-### Memory Management
-- **Allocation Failures:** Graceful handling of memory exhaustion
-- **Cache Cleanup:** Proper cleanup on error conditions
-- **Resource Leaks:** Prevention of memory and file handle leaks
-
-### Concurrency Errors
-- **Deadlock Prevention:** Consistent lock ordering prevents deadlocks
-- **Timeout Handling:** Automatic timeout prevents indefinite blocking
-- **Error Recovery:** Proper cleanup maintains system consistency
+### I/O Efficiency
+- **Lazy Loading:** Pages loaded only when accessed
+- **Batch Persistence:** Background thread batches dirty page writes
+- **Atomic Operations:** Complete page reads and writes prevent corruption
+- **Minimal Overhead:** Direct binary format minimizes I/O overhead
 
 ## Dependencies and Integration
 
 ### Required Modules
-- **Configuration System:** Directory paths, timing parameters, server settings
-- **File System:** Directory creation, file I/O operations
-- **Threading System:** Mutex operations, thread creation and management
+- **Configuration System:** Working directory, flush frequency, server identification
 - **Utilities Module:** Hash functions for default authentication number generation
+- **File System Interface:** Directory and file operations
+- **Threading Infrastructure:** Mutex and thread management
+
+### External Dependencies
+- **File System:** POSIX file operations for page storage
+- **Threading System:** POSIX threading for synchronization and background operations
+- **Timing System:** Time functions for reservation management
+- **Cryptographic Library:** MD5 hash for default authentication number generation
 
 ### Used By
 - **Authentication System:** Coin verification and ownership operations
@@ -470,128 +634,28 @@ DEN_1000000 = 6 (1000000)
 
 ### Cross-File Dependencies
 - **Configuration Module:** Working directory, flush frequency, server identification
-- **Utilities Module:** MD5 hash generation for default authentication numbers
+- **Utilities Module:** Hash generation for default authentication numbers
 - **File System Interface:** Directory and file operations
 - **Threading Infrastructure:** Mutex and thread management
 
-## Threading and Concurrency Design
+## Error Handling and Recovery
 
-### Multi-Level Locking Strategy
-- **Cache Mutex:** Protects cache data structures during modification
-- **Page Mutexes:** Individual page locks for fine-grained concurrency
-- **LRU List Protection:** Cache mutex protects LRU list modifications
-- **Hash Table Protection:** Cache mutex protects hash table operations
+### File System Error Handling
+- **Missing Files:** Automatic creation of missing page files with default data
+- **Directory Creation:** Automatic creation of missing directory structure
+- **I/O Errors:** Graceful handling of disk I/O failures
+- **Permission Errors:** Clear error reporting for access issues
 
-### Lock Ordering and Deadlock Prevention
-- **Consistent Ordering:** Always acquire cache mutex before page mutexes
-- **Brief Critical Sections:** Cache mutex held only for cache operations
-- **Long-Term Locks:** Page mutexes held for duration of coin operations
-- **Automatic Release:** Page locks automatically released by callers
+### Memory Management
+- **Allocation Failures:** Graceful handling of memory allocation failures
+- **Cache Overflow:** Automatic eviction prevents memory exhaustion
+- **Resource Leaks:** Systematic cleanup prevents memory leaks
+- **Thread Safety:** All memory operations are thread-safe
 
-### Thread-Safe Operations
-- **Atomic Cache Updates:** Cache modifications are atomic operations
-- **Safe Eviction:** Eviction process coordinates with active operations
-- **Reservation Safety:** Page reservations work correctly with concurrent access
-- **Background Safety:** Persistence thread operates safely with active cache
+### Data Integrity
+- **Atomic Operations:** Page operations are atomic to prevent corruption
+- **Validation:** File size and content validation during loading
+- **Recovery:** Self-healing creation of missing or corrupted files
+- **Consistency:** Cache always reflects disk state correctly
 
-## Cache Performance Optimization
-
-### Hash Table Design
-- **Prime Table Size:** Reduces clustering and improves distribution
-- **Chaining Resolution:** Simple chaining handles hash collisions
-- **Load Factor Management:** Cache size limits maintain reasonable load factors
-- **Key Distribution:** Cache keys designed for good hash distribution
-
-### LRU List Efficiency
-- **O(1) Operations:** All LRU operations are constant time
-- **Minimal Pointer Updates:** Efficient list manipulation
-- **Cache Hit Optimization:** Recently used pages moved to front efficiently
-- **Eviction Efficiency:** LRU victim selection is immediate
-
-### Memory Access Patterns
-- **Locality of Reference:** Cached pages improve temporal locality
-- **Reduced I/O:** Cache hits eliminate disk access
-- **Prefetch Opportunities:** Sequential access patterns benefit from caching
-- **Working Set Management:** Cache size tuned for typical working sets
-
-### Page File Format
-- **Fixed Size:** Each page file is exactly RECORDS_PER_PAGE × 17 bytes
-- **Binary Format:** Direct binary storage for efficiency
-- **No Headers:** Raw coin record data for minimal overhead
-- **Atomic Writes:** Complete page writes ensure consistency
-
-### Directory Management
-- **Lazy Creation:** Directories created as needed for coins
-- **MSB Organization:** High-order page bits determine directory
-- **Scalable Structure:** Structure scales to large page counts
-- **File System Compatibility:** Works with standard file systems
-
-## Backup and Recovery
-
-### Data Persistence Strategy
-- **Write-Through Caching:** Modified pages written to disk periodically
-- **Dirty Flag Tracking:** Only modified pages written to disk
-- **Atomic File Operations:** Complete page writes prevent corruption
-- **Background Persistence:** Asynchronous writes don't block operations
-
-### Recovery Mechanisms
-- **Self-Healing:** Missing page files created with default content
-- **Corruption Detection:** File size validation detects corruption
-- **Graceful Degradation:** System continues operating with some missing pages
-- **Administrative Tools:** Support for manual recovery operations
-
-### Consistency Guarantees
-- **Page Atomicity:** Individual page operations are atomic
-- **Cache Consistency:** Cache always reflects disk state correctly
-- **Reservation Consistency:** Page reservations work correctly across failures
-- **Background Sync:** Periodic sync ensures bounded data loss
-
-## Performance Monitoring and Tuning
-
-### Cache Statistics
-- **Hit Rate Tracking:** Monitor cache effectiveness
-- **Eviction Monitoring:** Track cache pressure and eviction frequency
-- **Memory Usage:** Monitor total cache memory consumption
-- **I/O Statistics:** Track disk read and write operations
-
-### Tuning Parameters
-- **Cache Size:** MAX_CACHED_PAGES tunable for memory/performance trade-off
-- **Hash Table Size:** HASH_TABLE_SIZE tunable for lookup performance
-- **Flush Frequency:** Background sync frequency tunable for persistence/performance
-- **Reservation Timeout:** Tunable for session management
-
-### Performance Characteristics
-- **Cache Hit Ratio:** Typically >90% for normal workloads
-- **Page Load Time:** Single disk seek + read time for cache misses
-- **Concurrent Throughput:** Scales with number of cached pages
-- **Memory Footprint:** Bounded by MAX_CACHED_PAGES × page size
-
-## Migration and Compatibility
-
-### Legacy System Compatibility
-- **File Format Compatibility:** Maintains compatibility with existing page files
-- **MD5 Default Generation:** Uses legacy MD5 for default authentication numbers
-- **Directory Structure:** Maintains existing directory organization
-- **Gradual Migration:** Can operate alongside existing systems
-
-### Upgrade Path
-- **In-Place Upgrade:** Can replace existing database systems without data migration
-- **Configuration Migration:** Existing configurations work with minimal changes
-- **Performance Improvement:** Immediate memory usage reduction
-- **Feature Preservation:** All existing functionality preserved
-
-## Administrative Interface
-
-### Cache Management
-- **Cache Statistics:** Provides visibility into cache performance
-- **Manual Eviction:** Administrative tools can force cache eviction
-- **Memory Monitoring:** Real-time memory usage monitoring
-- **Performance Tuning:** Runtime adjustment of cache parameters
-
-### Debugging Support
-- **Page State Monitoring:** Visibility into page reservation and dirty states
-- **Cache Dump:** Ability to examine cache contents for debugging
-- **Operation Tracing:** Detailed logging of cache operations
-- **Performance Metrics:** Comprehensive performance measurement
-
-This database module provides a modern, efficient foundation for RAIDA coin storage, dramatically reducing memory requirements while maintaining high performance through intelligent caching, providing thread-safe concurrent access, and ensuring data integrity through robust persistence mechanisms.
+This database module provides a modern, efficient foundation for RAIDA coin storage, dramatically reducing memory requirements while maintaining high performance through intelligent caching, providing thread-safe concurrent access, and ensuring data integrity through robust persistence mechanisms and critical race condition fixes.
