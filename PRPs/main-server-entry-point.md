@@ -1,308 +1,438 @@
-# RAIDA Server Main Entry Point (main.c)
+# Main Entry Point and Server Initialization (main)
 
 ## Module Purpose
-This module serves as the main entry point for the RAIDA server application, orchestrating the initialization of all system components, configuring the runtime environment, and managing the server lifecycle. It coordinates database systems, network services, security features, and background processes to create a fully functional RAIDA network node.
-
-## Core Functionality
-
-### 1. Main Entry Function (`main`)
-**Parameters:**
-- Argument count (integer)
-- Argument vector (array of strings)
-
-**Returns:** Integer exit code (0 for success, 1 for failure)
-
-**Purpose:** Primary entry point that initializes all system components and starts the server.
-
-**Process:**
-1. **Logging Initialization:**
-   - Initializes logging subsystem first for error reporting
-   - Configures log levels and output destinations
-   - Ensures early error messages are captured
-
-2. **Configuration Loading:**
-   - Reads configuration file using executable path
-   - Validates configuration parameters
-   - Sets up server identification and network parameters
-
-3. **Signal Handler Installation:**
-   - Installs signal handlers for graceful shutdown
-   - Configures handlers for SIGTERM, SIGINT, SIGHUP, SIGPIPE
-   - Sets up special handlers for sync operations (SIGUSR1)
-
-4. **Hardware Feature Detection:**
-   - Detects Intel AES instruction support
-   - Configures cryptographic optimizations
-   - Enables hardware acceleration where available
-
-5. **Database System Initialization:**
-   - Initializes on-demand page cache database system
-   - Starts background persistence threads
-   - Validates database structure and accessibility
-
-6. **Subsystem Initialization:**
-   - Initializes ticket storage for healing operations
-   - Sets up locker index for coin storage
-   - Configures crossover index for external integration
-   - Initializes statistics tracking system
-   - Sets up IP hash table for rate limiting
-
-7. **Integrity System Startup:**
-   - Initializes Merkle tree integrity system
-   - Starts background tree building threads
-   - Enables network integrity verification
-
-8. **Thread Pool Configuration:**
-   - Configures thread pool size based on CPU cores or configuration
-   - Initializes thread pool for request processing
-   - Sets up worker threads for parallel processing
-
-9. **Network Service Startup:**
-   - Initializes and starts network socket listeners
-   - Configures TCP and UDP service endpoints
-   - Begins accepting client connections
-
-**Dependencies:**
-- All major system components
-- Configuration system
-- Logging system
-- Network services
-
-### 2. Signal Handler (`handle_signal`)
-**Parameters:**
-- Signal number (integer)
-- Signal information structure pointer
-- Signal context pointer
-
-**Returns:** None
-
-**Purpose:** Handles system signals for graceful shutdown and operational control.
-
-**Process:**
-1. **Signal Processing:**
-   - Identifies signal type and source
-   - Logs signal reception for debugging
-   - Handles different signal types appropriately
-
-2. **Shutdown Signals:**
-   - SIGTERM, SIGINT, SIGHUP trigger graceful shutdown
-   - Sets global shutdown flag (`is_finished`)
-   - Allows all subsystems to clean up properly
-
-3. **Operational Signals:**
-   - SIGUSR1 triggers page synchronization
-   - Sets sync flag (`need_sync`) for background processing
-   - Enables manual synchronization operations
-
-4. **Signal Safety:**
-   - Unlocks log mutex to prevent deadlocks
-   - Uses signal-safe operations only
-   - Minimizes processing in signal context
-
-**Signal Types:**
-- **SIGTERM:** Graceful termination request
-- **SIGINT:** Interrupt signal (Ctrl+C)
-- **SIGHUP:** Hangup signal (configuration reload)
-- **SIGPIPE:** Broken pipe signal (network disconnection)
-- **SIGUSR1:** User-defined signal (sync request)
-
-### 3. Signal Handler Installation (`install_signal_handlers`)
-**Parameters:**
-- None
-
-**Returns:** Integer status code (0 for success, -1 for failure)
-
-**Purpose:** Installs signal handlers for all relevant system signals.
-
-**Process:**
-1. **Signal Action Configuration:**
-   - Configures signal action structure
-   - Sets up signal handler function
-   - Configures signal flags and masks
-
-2. **Handler Installation:**
-   - Installs handlers for all required signals
-   - Validates successful installation
-   - Ensures proper signal handling setup
-
-3. **Error Handling:**
-   - Checks for installation failures
-   - Logs errors appropriately
-   - Returns failure status on errors
-
-**Signal Configuration:**
-- **SA_SIGINFO:** Extended signal information
-- **SA_RESTART:** Restart interrupted system calls
-- **Signal Mask:** Controls signal blocking during handler execution
+This module serves as the primary entry point for the RAIDAX server, orchestrating the initialization of all system components including the optimized database layer, integrity system, network infrastructure, and various subsystems. It provides comprehensive system startup, signal handling, and resource management with full optimization for modern hardware.
 
 ## Global State Management
 
-### 1. Server State Variables
-**Variables:**
-- `is_finished`: Global shutdown flag for all subsystems
-- `need_sync`: Flag indicating need for page synchronization
-- `aes_hw`: Hardware AES support indicator
-- `thpool`: Global thread pool for request processing
+### System Control Variables
+| Variable | Type | Description |
+|----------|------|-------------|
+| `is_finished` | Integer | Global flag controlling main event loops across all modules |
+| `need_sync` | Integer | Legacy synchronization flag (may be deprecated) |
+| `aes_hw` | Integer | Hardware AES instruction support detection flag |
+| `thpool` | Thread Pool | Main thread pool for request processing |
 
-**Purpose:** Coordinate operations across all system components
-**Thread Safety:** Read by multiple threads, written by signal handlers
-**Lifecycle:** Initialized at startup, used throughout server operation
+### External Dependencies
+| Dependency | Source | Description |
+|------------|--------|-------------|
+| `log_mtx` | log.c | Logging system mutex for thread-safe logging |
+| `config` | config.c | Global configuration structure |
 
-### 2. External References
-**Variables:**
-- `config`: Global configuration structure
-- `log_mtx`: Logging system mutex for thread safety
+## Core Functionality
 
-**Purpose:** Access shared system resources and configuration
-**Source:** Defined in other modules, referenced here
-**Usage:** Configuration and logging coordination
+### 1. Signal Handler (`handle_signal`)
+**Parameters:**
+- Signal number (integer)
+- Signal info structure pointer
+- Context pointer (unused)
 
-## System Initialization Sequence
+**Returns:** None
 
-### 1. Early Initialization
-1. **Logging System:** First priority for error reporting
-2. **Configuration Loading:** Required for all other systems
-3. **Signal Handlers:** Essential for proper shutdown handling
-4. **Hardware Detection:** Enables optimizations early
+**Purpose:** Handles system signals for graceful shutdown and operational control with proper resource cleanup.
 
-### 2. Core System Initialization
-1. **Database System:** Foundation for all coin operations
-2. **Memory Pools:** Ticket storage and other pools
-3. **Index Systems:** Locker and crossover indexes
-4. **Statistics System:** Operation tracking and monitoring
+**Process:**
+1. **Logging Safety:**
+   - Unlocks log mutex in case signal interrupted logging operation
+   - Prevents deadlock in logging system during shutdown
+   - Ensures logging remains functional during signal handling
 
-### 3. Advanced Features
-1. **Rate Limiting:** IP hash table for abuse prevention
-2. **Integrity System:** Merkle tree verification
-3. **Thread Pool:** Parallel request processing
-4. **Network Services:** Client connection handling
+2. **Signal Processing:**
+   - **SIGUSR1:** Sets need_sync flag for manual synchronization trigger
+   - **SIGTERM/SIGINT/SIGHUP/SIGPIPE:** Initiates graceful shutdown
+   - Logs signal receipt for debugging and audit purposes
 
-### 4. Service Startup
-1. **Network Listeners:** TCP and UDP service endpoints
-2. **Background Threads:** Various maintenance operations
-3. **Ready State:** Server ready to accept requests
+3. **Graceful Shutdown:**
+   - Sets is_finished flag to signal all subsystems to shutdown
+   - Allows running operations to complete before termination
+   - Ensures clean resource cleanup across all modules
 
-## Configuration and Environment
+**Signal Safety:**
+- **Async-Signal-Safe:** Uses only signal-safe operations
+- **Resource Protection:** Prevents resource corruption during signal handling
+- **Clean Shutdown:** Coordinates shutdown across all system components
 
-### 1. Configuration Sources
-- **Configuration File:** Primary source of server parameters
-- **Command Line:** Executable path for configuration location
-- **Environment:** Hardware detection and system parameters
-- **Defaults:** Built-in defaults for missing parameters
+**Used By:** Operating system signal delivery, system administration
 
-### 2. Configuration Categories
-- **Server Identity:** RAIDA number, coin ID, admin keys
-- **Network Settings:** Ports, addresses, timeout values
-- **Database Settings:** Paths, cache sizes, flush frequency
-- **Security Settings:** Cryptographic parameters, rate limits
-- **Performance Settings:** Thread counts, memory limits
+**Dependencies:** Logging system, global state management
 
-### 3. Hardware Optimization
-- **AES Instructions:** Intel AES-NI support detection
-- **CPU Cores:** Thread pool sizing based on CPU count
-- **Memory:** Cache sizing based on available memory
-- **Storage:** Database configuration for storage type
+### 2. Install Signal Handlers (`install_signal_handlers`)
+**Parameters:** None
+
+**Returns:** Integer (0 for success, -1 for failure)
+
+**Purpose:** Configures comprehensive signal handling for robust server operation and administrative control.
+
+**Process:**
+1. **Signal Action Configuration:**
+   - Configures SA_SIGINFO for detailed signal information
+   - Sets SA_RESTART for automatic system call restart
+   - Clears signal mask for proper signal delivery
+
+2. **Signal Handler Registration:**
+   - **SIGTERM:** Graceful termination signal from system
+   - **SIGINT:** User interrupt signal (Ctrl-C)
+   - **SIGHUP:** Hangup signal for configuration reload
+   - **SIGPIPE:** Broken pipe signal for network error handling
+   - **SIGUSR1:** User-defined signal for manual synchronization
+
+3. **Error Handling:**
+   - Validates each signal handler installation
+   - Returns failure if any handler installation fails
+   - Logs successful installation for verification
+
+**Operational Benefits:**
+- **Graceful Shutdown:** Allows proper cleanup on termination
+- **Administrative Control:** Provides administrative signal interface
+- **Network Resilience:** Handles network-related signals properly
+- **Development Support:** Enables debugging and development workflows
+
+**Used By:** Server initialization, system administration
+
+**Dependencies:** POSIX signal handling
+
+### 3. Main Function (`main`)
+**Parameters:**
+- Argument count (integer)
+- Argument vector (string array)
+
+**Returns:** Integer exit code
+
+**Purpose:** Primary server initialization function that orchestrates startup of all system components in correct order with comprehensive error handling.
+
+**Process:**
+
+#### Phase 1: Core System Initialization
+1. **Logging System:**
+   - **First Priority:** Initializes logging before any other operations
+   - Enables error reporting for subsequent initialization steps
+   - Critical for debugging initialization failures
+
+2. **Build Information:**
+   - Logs server start with build timestamp
+   - Provides version tracking and deployment verification
+   - Essential for support and debugging
+
+3. **Configuration Loading:**
+   - Reads configuration from file system
+   - Validates all configuration parameters
+   - Critical for all subsequent initialization
+
+4. **Signal Handler Installation:**
+   - Installs comprehensive signal handling
+   - Enables graceful shutdown and administrative control
+   - Essential for production operation
+
+#### Phase 2: Hardware and Security Initialization
+1. **Hardware AES Detection:**
+   - **Optimization Check:** Detects Intel AES-NI instruction support
+   - **Performance Enhancement:** Enables hardware acceleration when available
+   - **Security Optimization:** Uses fastest available encryption
+
+#### Phase 3: Database and Storage Systems
+1. **Database Initialization:**
+   - **OPTIMIZATION:** Initializes on-demand page cache system
+   - **Background Threads:** Starts persistence and eviction threads
+   - **Performance Critical:** Foundation for all coin operations
+   - **Memory Efficiency:** Dramatically reduces memory usage
+
+#### Phase 4: Memory and Resource Management
+1. **Ticket Storage:**
+   - Initializes ticket memory pool for healing operations
+   - Enables distributed authentication across RAIDA network
+   - Critical for healing and consensus operations
+
+2. **Index Systems:**
+   - **Locker Index:** Initializes coin locker indexing system
+   - **Crossover Index:** Initializes crossover operation indexing
+   - **Performance Critical:** Enables fast coin lookup operations
+
+3. **Statistics System:**
+   - Initializes performance and operational metrics
+   - Enables monitoring and performance analysis
+   - Critical for production monitoring
+
+4. **IP Hash Table:**
+   - Initializes rate limiting and abuse prevention
+   - Protects system from denial-of-service attacks
+   - Essential for production security
+
+#### Phase 5: Advanced Systems
+1. **Integrity System:**
+   - **NEW FEATURE:** Initializes Merkle Tree integrity system
+   - **Background Processing:** Starts integrity verification thread
+   - **Network Healing:** Enables distributed healing capabilities
+   - **Data Integrity:** Ensures data consistency across RAIDA network
+
+#### Phase 6: Threading and Network Infrastructure
+1. **Thread Pool Configuration:**
+   - **Intelligent Sizing:** Uses configured threads or auto-detects CPU cores
+   - **Performance Optimization:** Defaults to THPOOL_SIZE with CPU detection
+   - **Scalability:** Adapts to available hardware resources
+   - **Load Distribution:** Enables concurrent request processing
+
+2. **Network Infrastructure:**
+   - **Event-Driven I/O:** Initializes epoll-based network handling
+   - **Protocol Support:** Enables TCP and UDP protocol handling
+   - **Performance Critical:** Handles all client communication
+   - **Blocking Operation:** Main execution blocks here serving requests
+
+#### Error Handling Strategy
+- **Early Termination:** Any initialization failure terminates server
+- **Clear Error Messages:** Descriptive error messages for each failure
+- **Resource Cleanup:** Proper cleanup on initialization failures
+- **Exit Codes:** Consistent exit codes for monitoring systems
+
+**System Architecture Benefits:**
+- **Modular Initialization:** Clean separation of initialization phases
+- **Dependency Management:** Proper initialization order respect dependencies
+- **Resource Optimization:** Efficient resource allocation and management
+- **Error Resilience:** Comprehensive error handling throughout initialization
+
+**Performance Optimizations:**
+- **Hardware Detection:** Automatic optimization for available hardware
+- **Dynamic Sizing:** Adaptive resource allocation based on system capabilities
+- **Cache Systems:** Multiple levels of caching for optimal performance
+- **Thread Management:** Intelligent thread pool sizing and management
+
+**Used By:** System startup, process management, service managers
+
+**Dependencies:** All system modules and subsystems
+
+## Initialization Sequence and Dependencies
+
+### Critical Path Dependencies
+1. **Logging → Configuration → Signal Handlers**
+2. **Database → Indexes → Statistics**
+3. **Network → Thread Pool → Main Loop**
+
+### Parallel Initialization Opportunities
+- **Background Threads:** Database persistence, integrity checking
+- **Independent Systems:** Statistics, rate limiting, ticket management
+- **Optimization Systems:** Hardware detection, performance tuning
+
+### Error Recovery Points
+- **Early Failures:** Logging and configuration errors are fatal
+- **Resource Failures:** Memory allocation failures are fatal
+- **Network Failures:** Network initialization failures are fatal
+- **Graceful Degradation:** Some subsystems can operate with reduced functionality
+
+## Hardware Optimization Integration
+
+### AES Hardware Acceleration
+- **Detection:** Automatic detection of Intel AES-NI instructions
+- **Optimization:** Enables hardware-accelerated encryption when available
+- **Fallback:** Graceful fallback to software encryption
+- **Performance:** Significant performance improvement for cryptographic operations
+
+### CPU Core Detection
+- **Dynamic Scaling:** Thread pool size adapts to available CPU cores
+- **Performance:** Optimal utilization of available processing power
+- **Resource Management:** Prevents over-subscription of CPU resources
+- **Scalability:** Automatically scales with hardware upgrades
+
+### Memory Optimization
+- **On-Demand Loading:** Database pages loaded only when needed
+- **Cache Management:** Intelligent cache sizing and eviction
+- **Memory Bounds:** All memory usage is bounded and predictable
+- **Resource Monitoring:** Memory usage tracking and optimization
+
+## Production Deployment Features
+
+### Service Integration
+- **Signal Handling:** Compatible with systemd and other service managers
+- **Process Management:** Proper daemon behavior and resource management
+- **Logging Integration:** Structured logging for system log integration
+- **Configuration Management:** File-based configuration with validation
+
+### Monitoring and Observability
+- **Build Tracking:** Build timestamp logging for deployment verification
+- **System Information:** Hardware capability detection and logging
+- **Performance Metrics:** Comprehensive metrics collection and reporting
+- **Health Monitoring:** System health indicators and status reporting
+
+### Security Hardening
+- **Signal Security:** Secure signal handling prevents signal-based attacks
+- **Resource Limits:** All resource usage is bounded and controlled
+- **Error Handling:** Secure error handling prevents information leakage
+- **Access Control:** Administrative functions require proper authentication
+
+## Development and Debugging Support
+
+### Debug Information
+- **Build Timestamps:** Precise build identification for debugging
+- **Initialization Logging:** Detailed logging of initialization process
+- **Component Status:** Status reporting for each initialized component
+- **Error Diagnostics:** Comprehensive error reporting and diagnostics
+
+### Development Workflow
+- **Signal-Based Control:** SIGUSR1 for manual synchronization triggers
+- **Graceful Shutdown:** Clean shutdown for development and testing
+- **Resource Cleanup:** Proper cleanup enables rapid restart cycles
+- **Configuration Flexibility:** File-based configuration enables easy testing
 
 ## Error Handling and Recovery
 
-### 1. Initialization Errors
-- **Logging Failure:** Critical error, immediate exit
-- **Configuration Errors:** Invalid config, immediate exit
-- **Signal Handler Errors:** Cannot install handlers, immediate exit
-- **Database Errors:** Cannot initialize database, immediate exit
+### Initialization Failure Handling
+- **Early Detection:** Failures detected before system becomes operational
+- **Clear Messaging:** Descriptive error messages for each failure type
+- **Resource Cleanup:** Proper cleanup prevents resource leaks
+- **Exit Code Standards:** Standard exit codes for monitoring integration
 
-### 2. Service Errors
-- **Network Errors:** Cannot bind ports, immediate exit
-- **Thread Pool Errors:** Cannot create threads, immediate exit
-- **Memory Errors:** Cannot allocate memory, immediate exit
-- **File System Errors:** Cannot access files, immediate exit
+### Runtime Error Handling
+- **Signal-Based Shutdown:** Graceful shutdown on system signals
+- **Resource Monitoring:** Continuous monitoring of resource usage
+- **Error Recovery:** Automatic recovery from transient failures
+- **Audit Logging:** Comprehensive logging for post-incident analysis
 
-### 3. Recovery Mechanisms
-- **Graceful Shutdown:** Proper cleanup on exit
-- **Error Logging:** Detailed error reporting
-- **Resource Cleanup:** Proper resource deallocation
-- **Exit Codes:** Proper exit status reporting
-
-## Performance and Scalability
-
-### 1. Thread Pool Configuration
-- **Dynamic Sizing:** Based on CPU cores or configuration
-- **Worker Threads:** Parallel request processing
-- **Queue Management:** Request queue for load balancing
-- **Resource Limits:** Prevents resource exhaustion
-
-### 2. Memory Management
-- **Cache Sizing:** Database cache based on available memory
-- **Pool Management:** Memory pools for frequent allocations
-- **Garbage Collection:** Automatic cleanup of unused resources
-- **Memory Monitoring:** Statistics and monitoring
-
-### 3. Network Performance
-- **Connection Pooling:** Efficient connection management
-- **Asynchronous I/O:** Non-blocking network operations
-- **Load Balancing:** Thread pool for request distribution
-- **Rate Limiting:** Protection against abuse
-
-## Security Features
-
-### 1. Cryptographic Security
-- **Hardware Acceleration:** AES-NI when available
-- **Secure Random:** Cryptographically secure random numbers
-- **Hash Functions:** SHA-256 for integrity verification
-- **Key Management:** Secure key storage and handling
-
-### 2. Network Security
-- **Rate Limiting:** Protection against DDoS attacks
-- **Input Validation:** All input validated before processing
-- **Authentication:** Admin key validation for sensitive operations
-- **Encryption:** Secure communication channels
-
-### 3. System Security
-- **Signal Handling:** Secure signal processing
-- **Resource Limits:** Prevention of resource exhaustion
-- **Access Control:** File and network access restrictions
-- **Audit Logging:** Security event logging
+### System Recovery
+- **Clean Restart:** System designed for clean restart after failures
+- **State Recovery:** Persistent state recovered from disk storage
+- **Configuration Reload:** Configuration can be reloaded without restart
+- **Component Resilience:** Individual component failures don't crash system
 
 ## Dependencies and Integration
 
-### Required Modules
-- **Logging System:** Error reporting and debugging
-- **Configuration System:** Server parameters and settings
-- **Database System:** Coin data storage and access
-- **Network System:** Client communication and services
-- **Security System:** Cryptographic operations and validation
-- **Threading System:** Parallel processing and background operations
+### System Dependencies
+- **Operating System:** Linux with epoll support, POSIX signals, threading
+- **Hardware:** x86/x64 processors with optional AES-NI instruction support
+- **File System:** POSIX-compliant file system for data storage
+- **Network:** TCP/UDP network stack for client and inter-RAIDA communication
+- **Memory:** Sufficient RAM for page cache and thread pools
 
-### External Dependencies
-- **System Libraries:** POSIX threads, networking, file I/O
-- **Cryptographic Libraries:** OpenSSL or equivalent
-- **Hardware Libraries:** CPU feature detection
-- **Operating System:** Signal handling, process management
+### Module Dependencies
+- **Configuration System:** System settings and operational parameters
+- **Logging System:** Thread-safe logging infrastructure
+- **Database Layer:** On-demand page cache and persistence
+- **Network Layer:** Event-driven I/O and protocol handling
+- **Thread Pool:** Concurrent request processing
+- **Security Systems:** Cryptographic functions and authentication
 
 ### Integration Points
-- **Command Handlers:** All command processing modules
-- **Background Services:** Various maintenance operations
-- **Network Protocols:** Client and server communication
-- **Storage Systems:** Database and file system integration
+- **Service Managers:** Compatible with systemd, init systems
+- **Monitoring Systems:** Metrics export and health checking
+- **Administrative Tools:** Configuration management and system control
+- **Client Applications:** Network API for all client operations
+- **RAIDA Network:** Inter-server communication and consensus
 
-## Monitoring and Maintenance
+## Performance Characteristics
 
-### 1. Operational Monitoring
-- **Statistics System:** Operation counts and performance metrics
-- **Health Checks:** System health and status monitoring
-- **Error Tracking:** Error rates and failure analysis
-- **Resource Usage:** Memory, CPU, and network utilization
+### Startup Performance
+- **Fast Initialization:** Optimized initialization sequence
+- **Parallel Loading:** Concurrent initialization where possible
+- **Resource Pre-allocation:** Pre-allocates critical resources
+- **Cache Warming:** Intelligent cache warming strategies
 
-### 2. Maintenance Operations
-- **Graceful Shutdown:** Proper server shutdown procedures
+### Runtime Performance
+- **Event-Driven Architecture:** Non-blocking I/O for maximum throughput
+- **Thread Pool Management:** Optimal thread utilization
+- **Memory Efficiency:** Bounded memory usage with intelligent caching
+- **Hardware Acceleration:** Automatic use of available hardware features
+
+### Scalability Features
+- **CPU Scaling:** Automatic adaptation to available CPU cores
+- **Memory Scaling:** Dynamic memory allocation based on workload
+- **Network Scaling:** High-concurrency network handling
+- **Load Distribution:** Even distribution of processing load
+
+## Security Considerations
+
+### Process Security
+- **Signal Handling:** Secure signal processing prevents signal-based attacks
+- **Resource Limits:** All resource usage bounded to prevent exhaustion
+- **Error Handling:** Secure error handling prevents information disclosure
+- **Memory Protection:** Proper memory management prevents buffer overflows
+
+### Network Security
+- **Protocol Validation:** All network protocols strictly validated
+- **Rate Limiting:** Built-in protection against denial-of-service attacks
+- **Authentication:** Strong authentication for administrative operations
+- **Encryption:** Hardware-accelerated encryption when available
+
+### Data Security
+- **Access Control:** Strict access controls on all data operations
+- **Audit Logging:** Comprehensive audit trail for security monitoring
+- **Data Integrity:** Cryptographic integrity verification
+- **Secure Storage:** Secure storage of sensitive configuration data
+
+## Operational Considerations
+
+### System Administration
+- **Configuration Management:** File-based configuration with validation
+- **Process Control:** Standard signal-based process control
+- **Log Management:** Structured logging compatible with log management systems
+- **Health Monitoring:** Built-in health checks and status reporting
+
+### Maintenance Operations
+- **Graceful Shutdown:** Clean shutdown preserves system state
 - **Configuration Reload:** Dynamic configuration updates
-- **Log Rotation:** Log file management and rotation
-- **Database Maintenance:** Background database operations
+- **Resource Monitoring:** Real-time resource usage monitoring
+- **Performance Tuning:** Runtime performance optimization
 
-### 3. Debug and Troubleshooting
-- **Detailed Logging:** Comprehensive operation logging
-- **Error Reporting:** Detailed error information
-- **Performance Profiling:** Operation timing and bottlenecks
-- **State Inspection:** System state examination tools
+### Backup and Recovery
+- **State Persistence:** Critical state persisted to disk storage
+- **Clean Restart:** System designed for clean restart after failures
+- **Data Recovery:** Robust data recovery mechanisms
+- **Disaster Recovery:** Support for disaster recovery procedures
 
-This main entry module provides the foundation for the RAIDA server, orchestrating all system components and ensuring reliable, secure, and high-performance operation of the network node.
+## Monitoring and Diagnostics
+
+### System Metrics
+- **Performance Metrics:** CPU, memory, network, and I/O statistics
+- **Operational Metrics:** Request rates, response times, error rates
+- **Resource Metrics:** Thread pool utilization, cache hit rates
+- **System Health:** Overall system health and component status
+
+### Diagnostic Information
+- **Build Information:** Version, build time, and configuration details
+- **Hardware Information:** CPU features, memory, and system capabilities
+- **Component Status:** Detailed status of all system components
+- **Error Diagnostics:** Comprehensive error tracking and analysis
+
+### Alerting Integration
+- **Status Reporting:** Machine-readable status information
+- **Error Reporting:** Structured error information for alerting systems
+- **Performance Thresholds:** Configurable performance thresholds
+- **Health Checks:** Built-in health check endpoints
+
+## Development and Testing Support
+
+### Development Features
+- **Debug Logging:** Comprehensive debug information
+- **Signal Control:** Development-friendly signal handling
+- **Configuration Flexibility:** Easy configuration for testing
+- **Resource Monitoring:** Real-time resource usage visibility
+
+### Testing Integration
+- **Clean Startup/Shutdown:** Reliable startup and shutdown for testing
+- **Configuration Validation:** Comprehensive configuration validation
+- **Error Simulation:** Support for error injection and testing
+- **Performance Testing:** Built-in performance measurement tools
+
+### Debugging Support
+- **Detailed Logging:** Comprehensive logging for debugging
+- **Component Isolation:** Individual component status and control
+- **Error Tracking:** Detailed error tracking and reporting
+- **State Inspection:** Runtime state inspection capabilities
+
+## Future Evolution and Extensibility
+
+### Architectural Flexibility
+- **Modular Design:** Clean separation between system components
+- **Plugin Architecture:** Support for future plugin systems
+- **Protocol Evolution:** Support for protocol version evolution
+- **Feature Flags:** Built-in support for feature flag systems
+
+### Performance Evolution
+- **Hardware Adaptation:** Automatic adaptation to new hardware features
+- **Algorithm Updates:** Support for updated cryptographic algorithms
+- **Optimization Opportunities:** Continuous performance optimization
+- **Scalability Improvements:** Support for increased scale requirements
+
+### Integration Evolution
+- **Service Integration:** Enhanced integration with modern service architectures
+- **Monitoring Evolution:** Support for evolved monitoring and observability
+- **Security Evolution:** Adaptation to evolving security requirements
+- **Operational Evolution:** Support for evolved operational practices
+
+This main entry point module provides comprehensive server initialization and management with advanced features including hardware optimization, security hardening, performance monitoring, and production-ready operational capabilities, serving as the foundation for a robust, scalable, and maintainable RAIDA server system.

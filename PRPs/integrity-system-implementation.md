@@ -1,4 +1,4 @@
-# Merkle Tree Integrity System (integrity)
+# Merkle Tree Integrity System (integrity.c)
 
 ## Module Purpose
 This module implements a comprehensive Merkle Tree-based integrity verification and self-healing system for the RAIDA network. It provides distributed consensus mechanisms, DDoS-resistant two-stage protocols, selective hashing for standardized verification, automated healing capabilities, and fixed critical bugs in TCP request logic to maintain network data integrity across all RAIDA servers.
